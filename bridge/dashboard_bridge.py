@@ -59,7 +59,7 @@ DARKBLOOM_STATE = os.path.join(HOME, ".darkbloom", "daemon-state.json")
 DARKBLOOM_TOKEN = os.path.join(HOME, ".darkbloom", "auth_token")
 LMSTUDIO_KEY = os.path.join(HOME, ".config", "lmstudio", "api_key")
 LMSTUDIO_BASE = "http://127.0.0.1:1234"
-BRIDGE_VERSION = "1.10.0"
+BRIDGE_VERSION = "1.10.1"
 _STARTED_AT = time.time()
 
 # --------------------------------------------------------------------------
@@ -1961,6 +1961,12 @@ class Handler(BaseHTTPRequestHandler):
                                 "error": "missing 'action'"}, 400)
                     return
                 code, ok, message, after = _do_action(action, target)
+                # Actions mutate the state /api/actions reports — drop its
+                # cached snapshot so the app's post-action refresh is never
+                # served the pre-action picture (a just-loaded model missing
+                # its Unload button, or a just-unloaded one still listed).
+                with _cache_lock:
+                    _cache.pop("actions", None)
                 if code == 400:
                     body = {"ok": False, "error": message}
                 else:
