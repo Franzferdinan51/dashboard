@@ -3,6 +3,8 @@ package com.duckets.dashboard.ui.screens
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -11,6 +13,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
@@ -26,10 +32,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.duckets.dashboard.BuildConfig
 import com.duckets.dashboard.theme.Muse
 import com.duckets.dashboard.ui.bridgeUrlError
 import com.duckets.dashboard.ui.components.CardHeader
@@ -41,9 +52,11 @@ import com.duckets.dashboard.vm.DashboardUiState
 import com.duckets.dashboard.vm.DashboardViewModel
 import com.duckets.dashboard.vm.TestState
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun SettingsScreen(state: DashboardUiState, vm: DashboardViewModel, columns: Int = 1, modifier: Modifier = Modifier) {
-    var urlDraft by remember(state.bridgeUrl) { mutableStateOf(state.bridgeUrl) }
+fun SettingsScreen(state: DashboardUiState, vm: DashboardViewModel, columns: Int = 1, modifier: Modifier = Modifier, listState: LazyListState = rememberLazyListState()) {
+    // Saveable: an unsaved draft must survive rotation and tab switches.
+    var urlDraft by rememberSaveable(state.bridgeUrl) { mutableStateOf(state.bridgeUrl) }
     val urlError = bridgeUrlError(urlDraft)
     val dirty = urlDraft.trim().trimEnd('/') != state.bridgeUrl
     // Settings reads best narrow: cap at 640dp and center on tablets.
@@ -52,6 +65,7 @@ fun SettingsScreen(state: DashboardUiState, vm: DashboardViewModel, columns: Int
     Box(modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
         LazyColumn(
             Modifier.fillMaxSize().widthIn(max = maxW).padding(horizontal = hPad),
+            state = listState,
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             item {
@@ -63,7 +77,11 @@ fun SettingsScreen(state: DashboardUiState, vm: DashboardViewModel, columns: Int
                         }
                         Spacer(Modifier.height(8.dp))
                         if (state.connected) {
-                            Text("${fmtFreshness(state.lastUpdatedMillis)} · ${state.latencyMs?.let { "$it ms" } ?: ""} · polls every ${state.refreshSeconds}s",
+                            Text(listOfNotNull(
+                                fmtFreshness(state.lastUpdatedMillis),
+                                state.latencyMs?.let { "$it ms" },
+                                "polls every ${state.refreshSeconds}s",
+                            ).joinToString(" · "),
                                 style = MaterialTheme.typography.bodySmall, color = Muse.TextDim)
                         }
                         Spacer(Modifier.height(8.dp))
@@ -73,6 +91,15 @@ fun SettingsScreen(state: DashboardUiState, vm: DashboardViewModel, columns: Int
                         OutlinedTextField(
                             value = urlDraft, onValueChange = { urlDraft = it; vm.clearTestState() },
                             label = { Text("Bridge URL") }, singleLine = true,
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.Uri,
+                                autoCorrectEnabled = false,
+                                capitalization = KeyboardCapitalization.None,
+                                imeAction = ImeAction.Done,
+                            ),
+                            keyboardActions = KeyboardActions(
+                                onDone = { if (urlError == null) vm.testConnection(urlDraft) },
+                            ),
                             isError = urlError != null && urlDraft.isNotBlank(),
                             supportingText = {
                                 when {
@@ -90,7 +117,7 @@ fun SettingsScreen(state: DashboardUiState, vm: DashboardViewModel, columns: Int
                             ),
                         )
                         Spacer(Modifier.height(10.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             Button(onClick = { vm.setBridgeUrl(urlDraft) }, enabled = urlError == null,
                                 colors = ButtonDefaults.buttonColors(containerColor = Muse.Blue), shape = Muse.CardShape) {
                                 Text("Save & reconnect")
@@ -125,7 +152,7 @@ fun SettingsScreen(state: DashboardUiState, vm: DashboardViewModel, columns: Int
                         Text("Poll every ${state.refreshSeconds}s", style = MaterialTheme.typography.bodyMedium, color = Muse.Mist)
                         Slider(value = state.refreshSeconds.toFloat(),
                             onValueChange = { vm.setRefreshSeconds(it.toInt()) },
-                            valueRange = 2f..30f, steps = 13,
+                            valueRange = DashboardUiState.MIN_REFRESH_SECONDS.toFloat()..DashboardUiState.MAX_REFRESH_SECONDS.toFloat(),
                             colors = SliderDefaults.colors(thumbColor = Muse.Blue, activeTrackColor = Muse.Blue,
                                 inactiveTrackColor = Muse.CardAlt))
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -148,7 +175,7 @@ fun SettingsScreen(state: DashboardUiState, vm: DashboardViewModel, columns: Int
                     Column(Modifier.padding(20.dp)) {
                         CardHeader("About")
                         Spacer(Modifier.height(10.dp))
-                        KeyValueRow("App", "Mac Studio Dashboard v1.1.0")
+                        KeyValueRow("App", "Mac Studio Dashboard v${BuildConfig.VERSION_NAME}")
                         KeyValueRow("Bridge", state.bridgeUrl)
                         KeyValueRow("Data", "System vitals · Darkbloom · LM Studio")
                         KeyValueRow("Layout", if (columns >= 2) "Tablet (rail, 2 columns)" else "Phone (bottom nav)")

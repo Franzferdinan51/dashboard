@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
@@ -54,7 +56,7 @@ import com.duckets.dashboard.vm.DashboardUiState
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun OverviewScreen(state: DashboardUiState, columns: Int, onRefresh: () -> Unit = {}, modifier: Modifier = Modifier) {
+fun OverviewScreen(state: DashboardUiState, columns: Int, onRefresh: () -> Unit = {}, modifier: Modifier = Modifier, listState: LazyListState = rememberLazyListState()) {
     val ov = state.overview
     val hPad = if (columns >= 2) 24.dp else 16.dp
     val maxW = if (columns >= 2) 1080.dp else 720.dp
@@ -62,6 +64,7 @@ fun OverviewScreen(state: DashboardUiState, columns: Int, onRefresh: () -> Unit 
         androidx.compose.foundation.layout.Box(Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.TopCenter) {
         LazyColumn(
             Modifier.fillMaxSize().widthIn(max = maxW).padding(horizontal = hPad),
+            state = listState,
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             item { HeroCard(state) }
@@ -132,12 +135,12 @@ private fun HeroCard(state: DashboardUiState) {
                 }
             }
             Spacer(Modifier.height(14.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                MiniStat("Uptime", fmtDuration(sys?.uptimeSeconds))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                MiniStat("Uptime", fmtDuration(sys?.uptimeSeconds), Modifier.weight(1f))
                 MiniStat("Load", sys?.loadAvg?.takeIf { it.isNotEmpty() }
-                    ?.joinToString(" ") { String.format("%.2f", it) } ?: "—")
-                MiniStat("Thermal", (sys?.thermal?.state ?: "—").replaceFirstChar { it.uppercase() })
-                MiniStat("Net in", fmtRate(sys?.network?.rateInBps ?: 0))
+                    ?.joinToString(" ") { String.format("%.2f", it) } ?: "—", Modifier.weight(1f))
+                MiniStat("Thermal", (sys?.thermal?.state ?: "—").replaceFirstChar { it.uppercase() }, Modifier.weight(1f))
+                MiniStat("Net in", fmtRate(sys?.network?.rateInBps ?: 0), Modifier.weight(1f))
             }
         }
     }
@@ -162,10 +165,11 @@ private fun SpecChip(text: String) {
 }
 
 @Composable
-private fun MiniStat(label: String, value: String) {
-    Column {
-        Text(label.uppercase(), style = MaterialTheme.typography.labelSmall, color = Muse.TextFaint)
-        Text(value, style = MaterialTheme.typography.titleMedium, color = Muse.Mist, maxLines = 1)
+private fun MiniStat(label: String, value: String, modifier: Modifier = Modifier) {
+    Column(modifier) {
+        Text(label.uppercase(java.util.Locale.US), style = MaterialTheme.typography.labelSmall, color = Muse.TextFaint)
+        Text(value, style = MaterialTheme.typography.titleMedium, color = Muse.Mist,
+            maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -213,7 +217,7 @@ private fun GaugeWithSpark(label: String, value: String, frac: Float, color: and
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = modifier) {
         ArcGauge(label = label, valueText = value, fraction = frac, color = color, subText = sub)
         Spacer(Modifier.height(6.dp))
-        Sparkline(history, color, maxValue = maxV, heightDp = 22)
+        Sparkline(history, color, maxValue = maxV, heightDp = 22, description = "$label history")
     }
 }
 
@@ -240,7 +244,8 @@ private fun DarkbloomStrip(ov: Overview, connected: Boolean) {
                 Icon(Icons.Filled.MonetizationOn, null, tint = Muse.Emerald, modifier = Modifier.size(28.dp))
                 Spacer(Modifier.width(10.dp))
                 Column {
-                    Text(fmtUsd(e?.balanceUsd), style = MaterialTheme.typography.headlineMedium, color = Muse.Mist)
+                    Text(fmtUsd(e?.balanceUsd), style = MaterialTheme.typography.headlineMedium, color = Muse.Mist,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text("balance · ${fmtCount(e?.jobsInHistory?.toLong())} paid jobs",
                         style = MaterialTheme.typography.bodySmall, color = Muse.TextDim)
                 }
@@ -251,14 +256,15 @@ private fun DarkbloomStrip(ov: Overview, connected: Boolean) {
                     MiniStat("Tokens", fmtCount(db.tokensGenerated))
                 }
             }
-            if (db.verificationPending && db.running) {
+            if (db.verificationPending && db.running && connected) {
                 Spacer(Modifier.height(10.dp))
                 Text("Trust: ${db.trustLevel ?: "—"} — verification pending on Darkbloom's side; paid jobs still land in the ledger.",
                     style = MaterialTheme.typography.bodySmall, color = Muse.Warn)
             }
             if (db.warmModels.isNotEmpty()) {
                 Spacer(Modifier.height(12.dp))
-                Text("Warm models", style = MaterialTheme.typography.labelSmall, color = Muse.TextFaint)
+                Text(if (connected) "Warm models" else "Warm models · last known",
+                    style = MaterialTheme.typography.labelSmall, color = Muse.TextFaint)
                 Spacer(Modifier.height(6.dp))
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     db.warmModels.forEach { SpecChip(shortModel(it)) }
@@ -266,7 +272,8 @@ private fun DarkbloomStrip(ov: Overview, connected: Boolean) {
             }
             if (db.currentModel != null) {
                 Spacer(Modifier.height(10.dp))
-                Text("Now serving", style = MaterialTheme.typography.labelSmall, color = Muse.TextFaint)
+                Text(if (connected) "Now serving" else "Last known serving",
+                    style = MaterialTheme.typography.labelSmall, color = Muse.TextFaint)
                 Text(shortModel(db.currentModel), style = MaterialTheme.typography.bodyMedium, color = Muse.Mist,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
@@ -289,7 +296,7 @@ private fun NetworkDiskCard(ov: Overview, state: DashboardUiState) {
                         Text("Download", style = MaterialTheme.typography.bodyMedium, color = Muse.TextDim)
                     }
                     Text(fmtRate(net.rateInBps), style = MaterialTheme.typography.titleMedium, color = Muse.Mist)
-                    Sparkline(state.netInHistory, Muse.Sky, heightDp = 24)
+                    Sparkline(state.netInHistory, Muse.Sky, heightDp = 24, description = "Download rate history")
                 }
                 Spacer(Modifier.width(16.dp))
                 Column(Modifier.weight(1f)) {
@@ -299,7 +306,7 @@ private fun NetworkDiskCard(ov: Overview, state: DashboardUiState) {
                         Text("Upload", style = MaterialTheme.typography.bodyMedium, color = Muse.TextDim)
                     }
                     Text(fmtRate(net.rateOutBps), style = MaterialTheme.typography.titleMedium, color = Muse.Mist)
-                    Sparkline(state.netOutHistory, Muse.Emerald, heightDp = 24)
+                    Sparkline(state.netOutHistory, Muse.Emerald, heightDp = 24, description = "Upload rate history")
                 }
             }
             KeyValueRow("Total in", fmtBytes(net.bytesIn))
@@ -309,10 +316,12 @@ private fun NetworkDiskCard(ov: Overview, state: DashboardUiState) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Filled.Storage, null, tint = Muse.BlueSoft, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text(d.label, style = MaterialTheme.typography.titleSmall, color = Muse.Mist)
+                    Text(d.label, style = MaterialTheme.typography.titleSmall, color = Muse.Mist,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Spacer(Modifier.weight(1f))
                     Text("${fmtBytes(d.freeBytes)} free · ${fmtPct(d.usedPct, 0)} used",
-                        style = MaterialTheme.typography.bodySmall, color = if (d.usedPct > 90) Muse.Bad else Muse.TextDim)
+                        style = MaterialTheme.typography.bodySmall, color = if (d.usedPct > 90) Muse.Bad else Muse.TextDim,
+                        maxLines = 1)
                 }
                 Spacer(Modifier.height(6.dp))
                 MeterBar((d.usedPct / 100).toFloat(),

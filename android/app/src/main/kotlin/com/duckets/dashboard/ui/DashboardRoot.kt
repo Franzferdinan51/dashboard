@@ -47,7 +47,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.windowsizeclass.WindowSizeClass
 import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -62,6 +64,9 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.duckets.dashboard.theme.Muse
 import com.duckets.dashboard.ui.components.PulseDot
@@ -86,6 +91,28 @@ fun DashboardRoot(windowSizeClass: WindowSizeClass) {
     var tabName by rememberSaveable { mutableStateOf(Tab.Overview.name) }
     val tab = runCatching { Tab.valueOf(tabName) }.getOrDefault(Tab.Overview)
 
+    // Poll only while the app is visible: no battery/network cost in the
+    // background, and pull-to-refresh covers any gap on return.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> vm.startPolling()
+                Lifecycle.Event.ON_STOP -> vm.stopPolling()
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    // List scroll positions survive tab switches (AnimatedContent disposes
+    // off-screen tabs, so the states live here, above it).
+    val overviewListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
+    val systemListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
+    val darkbloomListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
+    val settingsListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
+
     // Adaptive: phones (Compact) get bottom nav + 1 column; tablets, foldables
     // and landscape phones (Medium/Expanded) get a rail + 2 columns.
     val expanded = windowSizeClass.widthSizeClass >= WindowWidthSizeClass.Medium
@@ -101,6 +128,7 @@ fun DashboardRoot(windowSizeClass: WindowSizeClass) {
                         machineName = state.overview?.system?.computerName ?: "Mac Studio",
                         connected = state.connected,
                         everConnected = state.everConnected,
+                        lastError = state.lastError,
                         isRefreshing = state.isRefreshing,
                         lastUpdatedMillis = state.lastUpdatedMillis,
                         latencyMs = state.latencyMs,
@@ -169,10 +197,10 @@ fun DashboardRoot(windowSizeClass: WindowSizeClass) {
                         label = "tab",
                     ) { current ->
                         when (current) {
-                            Tab.Overview -> OverviewScreen(state, columns, onRefresh = { vm.refreshNow() })
-                            Tab.System -> SystemScreen(state, columns, onRefresh = { vm.refreshNow() })
-                            Tab.Darkbloom -> DarkbloomScreen(state, columns, onRefresh = { vm.refreshNow() })
-                            Tab.Settings -> SettingsScreen(state, vm, columns)
+                            Tab.Overview -> OverviewScreen(state, columns, onRefresh = { vm.refreshNow() }, listState = overviewListState)
+                            Tab.System -> SystemScreen(state, columns, onRefresh = { vm.refreshNow() }, listState = systemListState)
+                            Tab.Darkbloom -> DarkbloomScreen(state, columns, onRefresh = { vm.refreshNow() }, listState = darkbloomListState)
+                            Tab.Settings -> SettingsScreen(state, vm, columns, listState = settingsListState)
                         }
                     }
                 }
@@ -186,6 +214,7 @@ private fun Header(
     machineName: String,
     connected: Boolean,
     everConnected: Boolean,
+    lastError: String?,
     isRefreshing: Boolean,
     lastUpdatedMillis: Long,
     latencyMs: Long?,
@@ -208,7 +237,7 @@ private fun Header(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(
-                    machineName.uppercase(),
+                    machineName.uppercase(java.util.Locale.US),
                     style = MaterialTheme.typography.labelMedium,
                     color = Muse.BlueSoft, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
@@ -224,11 +253,19 @@ private fun Header(
             when {
                 connected -> PulseDot(Muse.Good, sizeDp = 9)
                 everConnected -> PulseDot(Muse.Bad, sizeDp = 9)
+                lastError != null -> PulseDot(Muse.Bad, sizeDp = 9)
                 else -> PulseDot(Muse.Warn, sizeDp = 9)
             }
             Spacer(Modifier.width(8.dp))
             Text(
-                when { connected -> "Live"; everConnected -> "Offline"; else -> "Connecting" },
+                when {
+                    connected -> "Live"
+                    everConnected -> "Offline"
+                    // A failed first connection must not sit on "Connecting"
+                    // forever — say so plainly.
+                    lastError != null -> "Can't connect"
+                    else -> "Connecting"
+                },
                 style = MaterialTheme.typography.labelLarge, color = Muse.TextDim,
             )
             IconButton(onClick = onRefresh) {

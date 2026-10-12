@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -44,7 +46,7 @@ import com.duckets.dashboard.vm.DashboardUiState
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SystemScreen(state: DashboardUiState, columns: Int = 1, onRefresh: () -> Unit = {}, modifier: Modifier = Modifier) {
+fun SystemScreen(state: DashboardUiState, columns: Int = 1, onRefresh: () -> Unit = {}, modifier: Modifier = Modifier, listState: LazyListState = rememberLazyListState()) {
     val ov = state.overview
     val hPad = if (columns >= 2) 24.dp else 16.dp
     val maxW = if (columns >= 2) 1080.dp else 720.dp
@@ -52,6 +54,7 @@ fun SystemScreen(state: DashboardUiState, columns: Int = 1, onRefresh: () -> Uni
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
             LazyColumn(
                 Modifier.fillMaxSize().widthIn(max = maxW).padding(horizontal = hPad),
+                state = listState,
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 if (ov == null) {
@@ -75,14 +78,14 @@ fun SystemScreen(state: DashboardUiState, columns: Int = 1, onRefresh: () -> Uni
                         item {
                             Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                                 Column(Modifier.weight(1f)) { StorageNetworkCard(sys, state) }
-                                Column(Modifier.weight(1f)) { ProcessesCard(sys) }
+                                Column(Modifier.weight(1f)) { ProcessesCard(sys, state) }
                             }
                         }
                     } else {
                         item { ProcessorCard(sys, state) }
                         item { MemoryCard(sys, state) }
                         item { StorageNetworkCard(sys, state) }
-                        item { ProcessesCard(sys) }
+                        item { ProcessesCard(sys, state) }
                     }
                     item { Spacer(Modifier.height(10.dp)) }
                 }
@@ -100,7 +103,7 @@ private fun ProcessorCard(sys: SystemStats, state: DashboardUiState) {
                     StatusChip("OFFLINE", Muse.Bad)
                 } else {
                     val nominal = sys.thermal.state.equals("nominal", true)
-                    StatusChip(if (nominal) "THERMAL NOMINAL" else "THERMAL ${sys.thermal.state.uppercase()}",
+                    StatusChip(if (nominal) "THERMAL NOMINAL" else "THERMAL ${sys.thermal.state.uppercase(java.util.Locale.US)}",
                         if (nominal) Muse.Good else Muse.Warn)
                 }
             }
@@ -127,7 +130,7 @@ private fun ProcessorCard(sys: SystemStats, state: DashboardUiState) {
             }
             Spacer(Modifier.height(10.dp))
             Text("CPU history", style = MaterialTheme.typography.labelSmall, color = Muse.TextFaint)
-            Sparkline(state.cpuHistory, Muse.Blue, maxValue = 100f)
+            Sparkline(state.cpuHistory, Muse.Blue, maxValue = 100f, description = "CPU usage history")
         }
     }
 }
@@ -136,7 +139,9 @@ private fun ProcessorCard(sys: SystemStats, state: DashboardUiState) {
 private fun MemoryCard(sys: SystemStats, state: DashboardUiState) {
     MuseCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(20.dp)) {
-            CardHeader("Memory", subtitle = "${fmtBytes(sys.memory.usedBytes)} of ${fmtBytes(sys.memory.totalBytes)} used (${fmtPct(sys.memory.usedPct, 0)})")
+            CardHeader("Memory", subtitle = "${fmtBytes(sys.memory.usedBytes)} of ${fmtBytes(sys.memory.totalBytes)} used (${fmtPct(sys.memory.usedPct, 0)})") {
+                if (!state.connected) StatusChip("OFFLINE", Muse.Bad)
+            }
             Spacer(Modifier.height(12.dp))
             val total = sys.memory.totalBytes.coerceAtLeast(1)
             StackedBar(listOf(
@@ -154,10 +159,10 @@ private fun MemoryCard(sys: SystemStats, state: DashboardUiState) {
             MemoryRow("Free", sys.memory.freeBytes, Muse.Good)
             Spacer(Modifier.height(8.dp))
             KeyValueRow("Swap",
-                "${fmtBytes((sys.memory.swapUsedMb * 1_000_000).toLong())} of ${fmtBytes((sys.memory.swapTotalMb * 1_000_000).toLong())}")
+                "${fmtBytes((sys.memory.swapUsedMb * 1_048_576).toLong())} of ${fmtBytes((sys.memory.swapTotalMb * 1_048_576).toLong())}")
             Spacer(Modifier.height(10.dp))
             Text("Memory history", style = MaterialTheme.typography.labelSmall, color = Muse.TextFaint)
-            Sparkline(state.ramHistory, Muse.Sky, maxValue = 100f)
+            Sparkline(state.ramHistory, Muse.Sky, maxValue = 100f, description = "Memory usage history")
         }
     }
 }
@@ -166,7 +171,9 @@ private fun MemoryCard(sys: SystemStats, state: DashboardUiState) {
 private fun StorageNetworkCard(sys: SystemStats, state: DashboardUiState) {
     MuseCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(20.dp)) {
-            CardHeader("Storage & network")
+            CardHeader("Storage & network") {
+                if (!state.connected) StatusChip("OFFLINE", Muse.Bad)
+            }
             Spacer(Modifier.height(10.dp))
             sys.disks.forEach { d ->
                 KeyValueRow(d.label, "${fmtBytes(d.usedBytes)} / ${fmtBytes(d.totalBytes)} · ${fmtPct(d.usedPct, 0)}")
@@ -183,10 +190,13 @@ private fun StorageNetworkCard(sys: SystemStats, state: DashboardUiState) {
 }
 
 @Composable
-private fun ProcessesCard(sys: SystemStats) {
+private fun ProcessesCard(sys: SystemStats, state: DashboardUiState) {
     MuseCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(20.dp)) {
-            CardHeader("Top processes", subtitle = "by CPU · pull to refresh for a new sample")
+            CardHeader("Top processes",
+                subtitle = if (state.connected) "by CPU · pull to refresh for a new sample" else "last known sample") {
+                if (!state.connected) StatusChip("OFFLINE", Muse.Bad)
+            }
             Spacer(Modifier.height(10.dp))
             Row(Modifier.fillMaxWidth()) {
                 TableCell("PROCESS", Modifier.weight(3f), Muse.TextFaint)
@@ -194,6 +204,9 @@ private fun ProcessesCard(sys: SystemStats) {
                 TableCell("MEM", Modifier.weight(1f), Muse.TextFaint)
                 TableCell("TIME", Modifier.weight(1.2f), Muse.TextFaint)
             }
+            // Per-process %CPU on macOS is per-core and routinely exceeds
+            // 100 — scale bars to the busiest process, not to 100.
+            val maxCpu = sys.topProcesses.maxOfOrNull { it.cpuPct }?.coerceAtLeast(1.0) ?: 1.0
             sys.topProcesses.forEach { p ->
                 Column(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
                     Row(Modifier.fillMaxWidth()) {
@@ -202,7 +215,7 @@ private fun ProcessesCard(sys: SystemStats) {
                         TableCell(fmtPct(p.memPct, 1), Modifier.weight(1f), Muse.TextDim)
                         TableCell(p.elapsed, Modifier.weight(1.2f), Muse.TextDim)
                     }
-                    MeterBar((p.cpuPct / 100.0).toFloat().coerceIn(0f, 1f),
+                    MeterBar((p.cpuPct / maxCpu).toFloat().coerceIn(0f, 1f),
                         if (p.cpuPct > 50) Muse.Warn else Muse.Blue, heightDp = 4)
                 }
             }

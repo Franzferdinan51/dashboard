@@ -30,6 +30,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -77,7 +80,7 @@ fun CardHeader(
 ) {
     Row(modifier = modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
-            Text(title.uppercase(), style = MaterialTheme.typography.labelMedium, color = Muse.TextDim)
+            Text(title.uppercase(java.util.Locale.US), style = MaterialTheme.typography.labelMedium, color = Muse.TextDim)
             if (subtitle != null) {
                 Text(subtitle, style = MaterialTheme.typography.bodySmall, color = Muse.TextFaint,
                     maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -111,7 +114,8 @@ fun StatusChip(text: String, color: Color, modifier: Modifier = Modifier, pulse:
         ) {
             if (pulse) PulseDot(color, sizeDp = 7)
             else Box(Modifier.size(7.dp).clip(CircleShape).background(color))
-            Text(text, style = MaterialTheme.typography.labelMedium, color = color, maxLines = 1)
+            Text(text, style = MaterialTheme.typography.labelMedium, color = color,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -137,8 +141,10 @@ fun MeterBar(
     fraction: Float, color: Color, modifier: Modifier = Modifier,
     trackColor: Color = Muse.Track, heightDp: Int = 8,
 ) {
+    // NaN.coerceIn() returns NaN — sanitize before it can reach layout.
+    val safeFraction = if (fraction.isFinite()) fraction else 0f
     val animated by animateFloatAsState(
-        targetValue = fraction.coerceIn(0f, 1f),
+        targetValue = safeFraction.coerceIn(0f, 1f),
         animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessLow),
         label = "meter",
     )
@@ -167,8 +173,9 @@ fun ArcGauge(
     label: String, valueText: String, fraction: Float, color: Color,
     modifier: Modifier = Modifier, subText: String? = null,
 ) {
+    val safeFraction = if (fraction.isFinite()) fraction else 0f
     val animated by animateFloatAsState(
-        targetValue = fraction.coerceIn(0f, 1f),
+        targetValue = safeFraction.coerceIn(0f, 1f),
         animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessLow),
         label = "gauge",
     )
@@ -202,7 +209,7 @@ fun ArcGauge(
             }
         }
         Spacer(Modifier.height(3.dp))
-        Text(label.uppercase(), style = MaterialTheme.typography.labelMedium, color = Muse.Mist, textAlign = TextAlign.Center)
+        Text(label.uppercase(java.util.Locale.US), style = MaterialTheme.typography.labelMedium, color = Muse.Mist, textAlign = TextAlign.Center)
         if (subText != null) {
             Text(subText, style = MaterialTheme.typography.labelSmall, color = Muse.TextFaint,
                 textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -214,31 +221,35 @@ fun ArcGauge(
 fun Sparkline(
     data: List<Float>, color: Color, modifier: Modifier = Modifier,
     maxValue: Float? = null, heightDp: Int = 36,
+    description: String? = null,
 ) {
-    Canvas(modifier.height(heightDp.dp).fillMaxWidth()) {
-        if (data.size < 2) {
+    // A single non-finite sample would poison max/min and blank the chart.
+    val clean = remember(data) { data.filter { it.isFinite() } }
+    Canvas(modifier.height(heightDp.dp).fillMaxWidth()
+        .then(if (description != null) Modifier.semantics { contentDescription = description } else Modifier)) {
+        if (clean.size < 2) {
             drawLine(color.copy(alpha = 0.4f), Offset(0f, size.height / 2), Offset(size.width, size.height / 2),
                 strokeWidth = 1.5.dp.toPx())
             return@Canvas
         }
-        val dataMax = data.maxOrNull() ?: 1f
-        val dataMin = data.minOrNull() ?: 0f
+        val dataMax = clean.maxOrNull() ?: 1f
+        val dataMin = clean.minOrNull() ?: 0f
         val max = (maxValue ?: dataMax).coerceAtLeast(0.001f)
         // Pad the range so a steady low signal does not glue to the floor.
         val lo = if (maxValue != null) 0f else (dataMin * 0.7f).coerceAtLeast(0f)
         val hi = if (maxValue != null) max else (dataMax * 1.15f).coerceAtLeast(lo + 0.001f)
         val padTop = 3.dp.toPx(); val padBottom = 3.dp.toPx()
         val usableH = size.height - padTop - padBottom
-        val stepX = size.width / (data.size - 1)
+        val stepX = size.width / (clean.size - 1)
         fun yFor(v: Float): Float {
             val t = ((v - lo) / (hi - lo)).coerceIn(0f, 1f)
             return padTop + (1f - t) * usableH
         }
         val path = Path()
-        data.forEachIndexed { i, v ->
+        clean.forEachIndexed { i, v ->
             val x = i * stepX; val y = yFor(v)
             if (i == 0) path.moveTo(x, y) else {
-                val prevX = (i - 1) * stepX; val prevY = yFor(data[i - 1])
+                val prevX = (i - 1) * stepX; val prevY = yFor(clean[i - 1])
                 val midX = (prevX + x) / 2f
                 path.cubicTo(midX, prevY, midX, y, x, y)
             }
@@ -246,7 +257,7 @@ fun Sparkline(
         val fill = Path().apply { addPath(path); lineTo(size.width, size.height); lineTo(0f, size.height); close() }
         drawPath(fill, brush = Brush.verticalGradient(listOf(color.copy(alpha = 0.22f), color.copy(alpha = 0.02f))))
         drawPath(path, color = color, style = Stroke(width = 1.8.dp.toPx(), cap = StrokeCap.Round))
-        val lastY = yFor(data.last())
+        val lastY = yFor(clean.last())
         drawCircle(color = color, radius = 3.dp.toPx(), center = Offset(size.width - 2.dp.toPx(), lastY))
         drawCircle(color = Color.White, radius = 1.4.dp.toPx(), center = Offset(size.width - 2.dp.toPx(), lastY))
     }

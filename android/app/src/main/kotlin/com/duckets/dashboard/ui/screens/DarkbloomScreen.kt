@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
@@ -46,7 +48,7 @@ import com.duckets.dashboard.vm.DashboardUiState
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DarkbloomScreen(state: DashboardUiState, columns: Int = 1, onRefresh: () -> Unit = {}, modifier: Modifier = Modifier) {
+fun DarkbloomScreen(state: DashboardUiState, columns: Int = 1, onRefresh: () -> Unit = {}, modifier: Modifier = Modifier, listState: LazyListState = rememberLazyListState()) {
     val ov = state.overview
     val hPad = if (columns >= 2) 24.dp else 16.dp
     val maxW = if (columns >= 2) 1080.dp else 720.dp
@@ -54,6 +56,7 @@ fun DarkbloomScreen(state: DashboardUiState, columns: Int = 1, onRefresh: () -> 
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
             LazyColumn(
                 Modifier.fillMaxSize().widthIn(max = maxW).padding(horizontal = hPad),
+                state = listState,
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 if (ov == null) {
@@ -69,25 +72,28 @@ fun DarkbloomScreen(state: DashboardUiState, columns: Int = 1, onRefresh: () -> 
                     val e = db.earnings
                     item { EarningsCard(db, e, state.connected) }
                     if (columns >= 2) {
-                        if (e != null && (e.perModel.isNotEmpty() || e.recent.isNotEmpty())) {
+                        if (e != null && e.perModel.isNotEmpty() && e.recent.isNotEmpty()) {
                             item {
                                 Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                                    Column(Modifier.weight(1f)) { if (e.perModel.isNotEmpty()) PerModelCard(e) }
-                                    Column(Modifier.weight(1f)) { if (e.recent.isNotEmpty()) RecentJobsCard(e) }
+                                    Column(Modifier.weight(1f)) { PerModelCard(e) }
+                                    Column(Modifier.weight(1f)) { RecentJobsCard(e) }
                                 }
                             }
+                        } else {
+                            if (e != null && e.perModel.isNotEmpty()) item { PerModelCard(e) }
+                            if (e != null && e.recent.isNotEmpty()) item { RecentJobsCard(e) }
                         }
                         item {
                             Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                                 Column(Modifier.weight(1f)) { ProviderCard(db, state.connected) }
-                                Column(Modifier.weight(1f)) { ModelsCard(db) }
+                                Column(Modifier.weight(1f)) { ModelsCard(db, state.connected) }
                             }
                         }
                     } else {
                         if (e != null && e.perModel.isNotEmpty()) item { PerModelCard(e) }
                         if (e != null && e.recent.isNotEmpty()) item { RecentJobsCard(e) }
                         item { ProviderCard(db, state.connected) }
-                        item { ModelsCard(db) }
+                        item { ModelsCard(db, state.connected) }
                     }
                     item { GpuCard(db) }
                     item { Spacer(Modifier.height(10.dp)) }
@@ -110,23 +116,33 @@ private fun EarningsCard(db: DarkbloomStats, e: Earnings?, connected: Boolean) {
                 }
             }
             Spacer(Modifier.height(14.dp))
-            Text(fmtUsd(e?.balanceUsd), style = MaterialTheme.typography.headlineLarge, color = Muse.Mist)
-            Text("available balance", style = MaterialTheme.typography.bodySmall, color = Muse.TextDim)
-            // Progress toward the $1 withdrawal threshold.
-            val bal = e?.balanceUsd?.toDoubleOrNull() ?: 0.0
-            Spacer(Modifier.height(10.dp))
-            MeterBar((bal / 1.0).toFloat().coerceIn(0f, 1f), Muse.Emerald, heightDp = 8)
-            Text(
-                if (bal >= 1.0) "Above the $1 withdrawal minimum — ready to withdraw."
-                else "${fmtUsd((1.0 - bal).toString())} to the $1 withdrawal minimum",
-                style = MaterialTheme.typography.bodySmall,
-                color = if (bal >= 1.0) Muse.Good else Muse.TextDim,
-            )
-            Spacer(Modifier.height(8.dp))
-            KeyValueRow("Withdrawable", fmtUsd(e?.withdrawableUsd))
-            KeyValueRow("Lifetime total", fmtUsd(e?.totalUsd))
-            KeyValueRow("Paid jobs (recent history)", fmtCount(e?.jobsInHistory?.toLong()))
-            KeyValueRow("Base rewards (recent)", fmtMicroUsd(e?.baseRewardsMicroRecent ?: 0))
+            if (e == null) {
+                // No ledger data in this sample: say so — never fabricate a
+                // $0 balance or a "$1.00 to go" claim about an unknown amount.
+                Text("—", style = MaterialTheme.typography.headlineLarge, color = Muse.Mist)
+                Text("available balance", style = MaterialTheme.typography.bodySmall, color = Muse.TextDim)
+                Spacer(Modifier.height(10.dp))
+                Text("Earnings unavailable from the bridge right now.",
+                    style = MaterialTheme.typography.bodyMedium, color = Muse.Warn)
+            } else {
+                Text(fmtUsd(e.balanceUsd), style = MaterialTheme.typography.headlineLarge, color = Muse.Mist)
+                Text("available balance", style = MaterialTheme.typography.bodySmall, color = Muse.TextDim)
+                // Progress toward the $1 withdrawal threshold.
+                val bal = e.balanceUsd?.toDoubleOrNull() ?: 0.0
+                Spacer(Modifier.height(10.dp))
+                MeterBar((bal / 1.0).toFloat().coerceIn(0f, 1f), Muse.Emerald, heightDp = 8)
+                Text(
+                    if (bal >= 1.0) "Above the $1 withdrawal minimum — ready to withdraw."
+                    else "${fmtUsd((1.0 - bal).toString())} to the $1 withdrawal minimum",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (bal >= 1.0) Muse.Good else Muse.TextDim,
+                )
+                Spacer(Modifier.height(8.dp))
+                KeyValueRow("Withdrawable", fmtUsd(e.withdrawableUsd))
+                KeyValueRow("Lifetime total", fmtUsd(e.totalUsd))
+                KeyValueRow("Paid jobs (recent history)", fmtCount(e.jobsInHistory?.toLong()))
+                KeyValueRow("Base rewards (recent)", fmtMicroUsd(e.baseRewardsMicroRecent))
+            }
             KeyValueRow("Requests served (session)", fmtCount(db.requestsServed))
             KeyValueRow("Tokens generated (session)", fmtCount(db.tokensGenerated))
         }
@@ -180,7 +196,7 @@ private fun RecentJobsCard(e: Earnings) {
                         ).joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = Muse.TextFaint,
                             maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
-                    Text(fmtUsd(entry.amountUsd.toString()), style = MaterialTheme.typography.bodyMedium, color = Muse.Good)
+                    Text(fmtMicroUsd(entry.amountMicroUsd), style = MaterialTheme.typography.bodyMedium, color = Muse.Good)
                 }
             }
         }
@@ -221,10 +237,12 @@ private fun ProviderCard(db: DarkbloomStats, connected: Boolean) {
 }
 
 @Composable
-private fun ModelsCard(db: DarkbloomStats) {
+private fun ModelsCard(db: DarkbloomStats, connected: Boolean) {
     MuseCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(20.dp)) {
-            CardHeader("Models", subtitle = "${db.warmModels.size} warm of ${db.advertisedModels.size} advertised")
+            CardHeader("Models", subtitle = "${db.warmModels.size} warm of ${db.advertisedModels.size} advertised") {
+                if (!connected) StatusChip("OFFLINE", Muse.Bad)
+            }
             Spacer(Modifier.height(10.dp))
             if (db.residentModels.isEmpty() && db.advertisedModels.isEmpty()) {
                 Text("No model data from the provider yet.", style = MaterialTheme.typography.bodyMedium, color = Muse.TextDim)
@@ -234,7 +252,8 @@ private fun ModelsCard(db: DarkbloomStats) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text(shortModel(r.model), style = MaterialTheme.typography.titleSmall, color = Muse.Mist,
                             modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        StatusChip("WARM", Muse.Good)
+                        if (connected) StatusChip("WARM", Muse.Good)
+                        else StatusChip("WARM · LAST KNOWN", Muse.TextDim)
                     }
                     Spacer(Modifier.height(4.dp))
                     KeyValueRow("Resident", fmtGb(r.residentGb, 1) + " (weights ${fmtGb(r.weightsGb, 1)})")
@@ -263,9 +282,13 @@ private fun GpuCard(db: DarkbloomStats) {
         Column(Modifier.padding(20.dp)) {
             CardHeader("GPU capacity", subtitle = "unified memory pool")
             Spacer(Modifier.height(12.dp))
-            val total = db.capacityTotalGb ?: 128.0
+            // Never invent a denominator: if the bridge didn't report total
+            // capacity, show the rows without a meter rather than assuming.
+            val total = db.capacityTotalGb
             val active = db.gpuActiveGb ?: 0.0
-            MeterBar(if (total > 0) (active / total).toFloat() else 0f, Muse.Emerald, heightDp = 10)
+            if (total != null && total > 0) {
+                MeterBar((active / total).toFloat(), Muse.Emerald, heightDp = 10)
+            }
             Spacer(Modifier.height(10.dp))
             KeyValueRow("Active", fmtGb(db.gpuActiveGb))
             KeyValueRow("Cache", fmtGb(db.gpuCacheGb, 2))
@@ -276,7 +299,11 @@ private fun GpuCard(db: DarkbloomStats) {
             Spacer(Modifier.height(8.dp))
             KeyValueRow("Phase", db.autopilotPhase ?: "—")
             KeyValueRow("Enabled", when (db.autopilotEnabled) { true -> "yes"; false -> "no"; null -> "—" })
-            KeyValueRow("Mode", if (db.autopilotObserveOnly == true) "shadow / observe only" else "active")
+            KeyValueRow("Mode", when (db.autopilotObserveOnly) {
+                true -> "shadow / observe only"
+                false -> "active"
+                null -> "—"
+            })
         }
     }
 }
