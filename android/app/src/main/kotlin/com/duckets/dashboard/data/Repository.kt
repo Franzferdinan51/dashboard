@@ -86,6 +86,12 @@ class DashboardRepository(
     }
 
     suspend fun fetchOverview(baseUrl: String): Overview = parseOverview(getJson(baseUrl, "/api/overview"))
+
+    suspend fun fetchMining(baseUrl: String): MiningData =
+        parseMining(getJson(baseUrl, "/api/mining").obj("mining") ?: JSONObject())
+
+    suspend fun fetchWindows(baseUrl: String): WindowsData =
+        parseWindows(getJson(baseUrl, "/api/windows").obj("windows") ?: JSONObject())
 }
 
 // ---------------------------------------------------------------------------
@@ -346,6 +352,17 @@ private fun parseEarnings(e: JSONObject): Earnings {
         perModel = perModel,
         recent = recent,
         estimates = e.obj("estimates")?.let { s ->
+            val split = s.obj("split")
+            val serving = s.obj("serving")
+            val series = buildList {
+                s.arr("series")?.let { a ->
+                    for (i in 0 until a.length()) {
+                        val p = a.optJSONArray(i) ?: continue
+                        add(EarningsPoint(tsSec = p.optDouble(0, 0.0),
+                            totalMicroUsd = p.optLong(1, 0)))
+                    }
+                }
+            }
             EarningsEstimates(
                 perDayUsd = s.dbl("per_day_usd") ?: 0.0,
                 perWeekUsd = s.dbl("per_week_usd") ?: 0.0,
@@ -353,6 +370,12 @@ private fun parseEarnings(e: JSONObject): Earnings {
                 method = s.str("method"),
                 trackedSinceEpochSec = s.dbl("tracked_since"),
                 basisLabel = s.obj("basis")?.str("label"),
+                confidence = s.str("confidence"),
+                basePerDayUsd = split?.dbl("base_per_day_usd"),
+                jobsPerDayUsd = split?.dbl("jobs_per_day_usd"),
+                onlineFraction = serving?.dbl("online_fraction"),
+                whileServingPerDayUsd = serving?.dbl("per_day_while_serving_usd"),
+                series = series,
             )
         },
     )
@@ -382,5 +405,123 @@ private fun parseLmStudio(lm: JSONObject): LmStudioStats {
         reachable = lm.bool("reachable") ?: false,
         loadedCount = lm.intOrNull("loaded_count") ?: 0,
         models = models,
+    )
+}
+
+private fun parseMining(m: JSONObject): MiningData {
+    val fleet = m.obj("fleet")
+    val coins = buildList {
+        fleet?.arr("coins")?.let { a ->
+            for (i in 0 until a.length()) {
+                val c = a.optJSONObject(i) ?: continue
+                val rigs = buildList {
+                    c.arr("rigs")?.let { ra ->
+                        for (j in 0 until ra.length()) {
+                            val r = ra.optJSONObject(j) ?: continue
+                            add(
+                                MiningRig(
+                                    name = r.str("name") ?: "",
+                                    hashrate30m = r.str("hashrate_30m"),
+                                    hashrate24h = r.str("hashrate_24h"),
+                                    perDayUsd = r.dbl("per_day_usd"),
+                                    perMonthUsd = r.dbl("per_month_usd"),
+                                )
+                            )
+                        }
+                    }
+                }
+                add(
+                    MiningCoin(
+                        coin = c.str("coin") ?: "",
+                        scheme = c.str("scheme") ?: "",
+                        miner = c.str("miner") ?: "",
+                        rigs = rigs,
+                    )
+                )
+            }
+        }
+    }
+    val totals = m.obj("totals")
+    val live = m.obj("batman_live")
+    return MiningData(
+        fleetAsOfEpochSec = fleet?.dbl("as_of"),
+        fleetSource = fleet?.str("source"),
+        coins = coins,
+        totalPerDayUsd = totals?.dbl("per_day_usd"),
+        totalPerWeekUsd = totals?.dbl("per_week_usd"),
+        totalPerMonthUsd = totals?.dbl("per_month_usd"),
+        totalPerYearUsd = totals?.dbl("per_year_usd"),
+        batmanLive = live?.let {
+            BatmanLive(
+                running = it.bool("running") ?: false,
+                hashrateThs = it.dbl("hashrate_ths"),
+                avg1hThs = it.dbl("avg_1h_ths"),
+                powerW = it.dbl("power_w"),
+                gpuTempC = it.dbl("gpu_temp_c"),
+                checkedAtEpochSec = it.dbl("checked_at"),
+                stale = it.bool("stale") ?: false,
+            )
+        },
+    )
+}
+
+private fun parseWindows(w: JSONObject): WindowsData {
+    if (!(w.bool("reachable") ?: false)) {
+        // Bridge keeps the last good PC snapshot server-side; an
+        // unreachable body with a last_good blob still renders.
+        val lg = w.obj("last_good") ?: return WindowsData(reachable = false)
+        return parseWindows(lg).copy(reachable = true, stale = true)
+    }
+    val cpu = w.obj("cpu") ?: JSONObject()
+    val mem = w.obj("memory") ?: JSONObject()
+    val gpu = w.obj("gpu") ?: JSONObject()
+    val net = w.obj("network") ?: JSONObject()
+    val miner = w.obj("miner") ?: JSONObject()
+    val disks = buildList {
+        w.arr("disks")?.let { a ->
+            for (i in 0 until a.length()) {
+                val d = a.optJSONObject(i) ?: continue
+                add(
+                    WinDisk(
+                        label = d.str("label") ?: "",
+                        totalBytes = d.lng("total_bytes") ?: 0,
+                        freeBytes = d.lng("free_bytes") ?: 0,
+                        usedPct = d.dbl("used_pct") ?: 0.0,
+                    )
+                )
+            }
+        }
+    }
+    return WindowsData(
+        reachable = true,
+        stale = w.bool("stale") ?: false,
+        osName = w.str("os_name"),
+        osVersion = w.str("os_version"),
+        uptimeSeconds = w.lng("uptime_seconds"),
+        cpuName = cpu.str("name"),
+        cpuLoadPct = cpu.intOrNull("load_pct"),
+        cpuCores = cpu.intOrNull("cores"),
+        cpuLogical = cpu.intOrNull("logical"),
+        memUsedPct = mem.dbl("used_pct"),
+        memUsedBytes = mem.lng("used_bytes") ?: 0,
+        memFreeBytes = mem.lng("free_bytes") ?: 0,
+        memTotalBytes = mem.lng("total_bytes") ?: 0,
+        gpuName = gpu.str("name"),
+        gpuUtilPct = gpu.dbl("util_pct"),
+        gpuMemUsedMb = gpu.dbl("mem_used_mb"),
+        gpuMemTotalMb = gpu.dbl("mem_total_mb"),
+        gpuTempC = gpu.dbl("temp_c"),
+        gpuPowerW = gpu.dbl("power_w"),
+        disks = disks,
+        netRateInBps = net.dbl("rate_in_bps"),
+        netRateOutBps = net.dbl("rate_out_bps"),
+        minerRunning = miner.bool("running") ?: false,
+        minerHashrateThs = miner.dbl("hashrate_ths"),
+        minerAvg15mThs = miner.dbl("avg_15m_ths"),
+        minerAvg1hThs = miner.dbl("avg_1h_ths"),
+        minerAvg6hThs = miner.dbl("avg_6h_ths"),
+        minerPowerW = miner.dbl("power_w"),
+        minerAccepted = miner.intOrNull("accepted"),
+        minerRejected = miner.intOrNull("rejected"),
     )
 }

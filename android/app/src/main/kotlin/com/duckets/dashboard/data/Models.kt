@@ -146,6 +146,18 @@ data class EarningsEstimates(
     val method: String? = null,
     val trackedSinceEpochSec: Double? = null,
     val basisLabel: String? = null,
+    val confidence: String? = null,
+    val basePerDayUsd: Double? = null,
+    val jobsPerDayUsd: Double? = null,
+    val onlineFraction: Double? = null,
+    val whileServingPerDayUsd: Double? = null,
+    val series: List<EarningsPoint> = emptyList(),
+)
+
+/** One point of the bridge's cumulative-earnings ledger series. */
+data class EarningsPoint(
+    val tsSec: Double = 0.0,
+    val totalMicroUsd: Long = 0,
 )
 
 data class ModelEarnings(
@@ -177,4 +189,86 @@ data class LmModel(
     val sizeBytes: Long? = null,
     val maxContext: Long? = null,
     val loadedContext: Long? = null,
+)
+
+// ---------------------------------------------------------------------------
+// Mining (Kryptex fleet) + Windows PC (Batman-3) — separate bridge endpoints,
+// deliberately NOT part of Overview so neither can bleed into the Mac or
+// Darkbloom numbers. The combined Earnings tab sums them client-side.
+// ---------------------------------------------------------------------------
+
+data class MiningData(
+    val fleetAsOfEpochSec: Double? = null,
+    val fleetSource: String? = null,
+    val coins: List<MiningCoin> = emptyList(),
+    val totalPerDayUsd: Double? = null,
+    val totalPerWeekUsd: Double? = null,
+    val totalPerMonthUsd: Double? = null,
+    val totalPerYearUsd: Double? = null,
+    val batmanLive: BatmanLive? = null,
+)
+
+data class MiningCoin(
+    val coin: String = "",
+    val scheme: String = "",
+    val miner: String = "",
+    val rigs: List<MiningRig> = emptyList(),
+)
+
+data class MiningRig(
+    val name: String = "",
+    val hashrate30m: String? = null,
+    val hashrate24h: String? = null,
+    val perDayUsd: Double? = null,
+    val perMonthUsd: Double? = null,
+)
+
+data class BatmanLive(
+    val running: Boolean = false,
+    val hashrateThs: Double? = null,
+    val avg1hThs: Double? = null,
+    val powerW: Double? = null,
+    val gpuTempC: Double? = null,
+    val checkedAtEpochSec: Double? = null,
+    val stale: Boolean = false,
+)
+
+data class WindowsData(
+    val reachable: Boolean = false,
+    val stale: Boolean = false,
+    val osName: String? = null,
+    val osVersion: String? = null,
+    val uptimeSeconds: Long? = null,
+    val cpuName: String? = null,
+    val cpuLoadPct: Int? = null,
+    val cpuCores: Int? = null,
+    val cpuLogical: Int? = null,
+    val memUsedPct: Double? = null,
+    val memUsedBytes: Long = 0,
+    val memFreeBytes: Long = 0,
+    val memTotalBytes: Long = 0,
+    val gpuName: String? = null,
+    val gpuUtilPct: Double? = null,
+    val gpuMemUsedMb: Double? = null,
+    val gpuMemTotalMb: Double? = null,
+    val gpuTempC: Double? = null,
+    val gpuPowerW: Double? = null,
+    val disks: List<WinDisk> = emptyList(),
+    val netRateInBps: Double? = null,
+    val netRateOutBps: Double? = null,
+    val minerRunning: Boolean = false,
+    val minerHashrateThs: Double? = null,
+    val minerAvg15mThs: Double? = null,
+    val minerAvg1hThs: Double? = null,
+    val minerAvg6hThs: Double? = null,
+    val minerPowerW: Double? = null,
+    val minerAccepted: Int? = null,
+    val minerRejected: Int? = null,
+)
+
+data class WinDisk(
+    val label: String = "",
+    val totalBytes: Long = 0,
+    val freeBytes: Long = 0,
+    val usedPct: Double = 0.0,
 )
