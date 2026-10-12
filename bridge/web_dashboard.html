@@ -150,8 +150,7 @@
 <div id="banner"><span style="flex:1">Can't reach the bridge — showing last known data.</span><button id="retryBtn">Retry</button></div>
 
 <nav class="tabs" id="tabbar">
-  <button data-view="all" class="on">All</button>
-  <button data-view="ov">Overview</button>
+  <button data-view="ov" class="on">Overview</button>
   <button data-view="sys">System</button>
   <button data-view="db">Darkbloom</button>
   <button data-view="mining">Mining</button>
@@ -407,7 +406,7 @@
     </div>
     <h2 style="margin-top:16px">About</h2>
     <div class="rows" id="aboutRows"></div>
-    <p style="color:var(--dim);font-size:12.8px">The detailed web companion to the phone/tablet app — same bridge, same data, plus the analytics layer. Read-only; nothing here can change the Mac. Shortcuts: 1–9 switch views, R refreshes, P pauses.</p>
+    <p style="color:var(--dim);font-size:12.8px">The detailed web companion to the phone/tablet app — same bridge, same data, plus the analytics layer. Read-only; nothing here can change the Mac. Shortcuts: 1–8 switch views, R refreshes, P pauses.</p>
   </section>
 </main>
 
@@ -1211,14 +1210,14 @@ function jobsCsv() {
 }
 
 /* ---------- views / tabs ---------- */
-let currentView = "all";
+let currentView = "ov";
 function setView(v) {
   currentView = v;
   document.querySelectorAll("#tabbar button").forEach(b =>
     b.classList.toggle("on", b.dataset.view === v));
   document.querySelectorAll("#grid .card").forEach(c => {
     const views = (c.dataset.views || "").split(/\s+/);
-    c.style.display = (v === "all" || views.includes(v)) ? "" : "none";
+    c.style.display = views.includes(v) ? "" : "none";
   });
   if (v === "events") { newSinceOpen.clear(); $("evtBadge").style.display = "none"; renderDecisions(); }
   drawCharts();
@@ -1286,8 +1285,9 @@ document.addEventListener("visibilitychange", () => {
 });
 document.addEventListener("keydown", e => {
   if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
-  const views = ["all", "ov", "sys", "db", "mining", "earn", "win", "events", "console"];
-  if (e.key >= "1" && e.key <= "9") setView(views[Number(e.key) - 1]);
+  const views = ["ov", "sys", "db", "mining", "earn", "win", "events", "console"];
+  const vi = Number(e.key) - 1;
+  if (e.key >= "1" && e.key <= "9" && vi < views.length) setView(views[vi]);
   else if (e.key === "r" || e.key === "R") tick();
   else if (e.key === "p" || e.key === "P") $("pauseBtn").click();
 });
@@ -1297,7 +1297,10 @@ window.addEventListener("resize", drawCharts);
 initGauges();
 renderCommands();
 const hv = location.hash.replace("#", "");
-if (["ov", "sys", "db", "mining", "earn", "win", "events", "console"].includes(hv)) setView(hv);
+const VIEW_KEYS = ["ov", "sys", "db", "mining", "earn", "win", "events", "console"];
+// The old "all" view was merged into Overview — #all (and anything
+// unrecognized) falls back to Overview rather than a blank page.
+setView(VIEW_KEYS.includes(hv) ? hv : "ov");
 tick(); tickDecisions(); tickProbes(); tickSide();
 restartTimer();
 setInterval(tickDecisions, 20000);
