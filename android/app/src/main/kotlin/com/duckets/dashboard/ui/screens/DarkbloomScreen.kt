@@ -67,7 +67,7 @@ fun DarkbloomScreen(state: DashboardUiState, columns: Int = 1, onRefresh: () -> 
                 } else {
                     val db = ov.darkbloom
                     val e = db.earnings
-                    item { EarningsCard(db, e) }
+                    item { EarningsCard(db, e, state.connected) }
                     if (columns >= 2) {
                         if (e != null && (e.perModel.isNotEmpty() || e.recent.isNotEmpty())) {
                             item {
@@ -79,14 +79,14 @@ fun DarkbloomScreen(state: DashboardUiState, columns: Int = 1, onRefresh: () -> 
                         }
                         item {
                             Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                                Column(Modifier.weight(1f)) { ProviderCard(db) }
+                                Column(Modifier.weight(1f)) { ProviderCard(db, state.connected) }
                                 Column(Modifier.weight(1f)) { ModelsCard(db) }
                             }
                         }
                     } else {
                         if (e != null && e.perModel.isNotEmpty()) item { PerModelCard(e) }
                         if (e != null && e.recent.isNotEmpty()) item { RecentJobsCard(e) }
-                        item { ProviderCard(db) }
+                        item { ProviderCard(db, state.connected) }
                         item { ModelsCard(db) }
                     }
                     item { GpuCard(db) }
@@ -98,11 +98,12 @@ fun DarkbloomScreen(state: DashboardUiState, columns: Int = 1, onRefresh: () -> 
 }
 
 @Composable
-private fun EarningsCard(db: DarkbloomStats, e: Earnings?) {
+private fun EarningsCard(db: DarkbloomStats, e: Earnings?, connected: Boolean) {
     MuseCard(Modifier.fillMaxWidth(), hero = true) {
         Column(Modifier.padding(20.dp)) {
             CardHeader("Earnings", subtitle = "USD via Stripe · $1 minimum withdrawal · 0% fee") {
                 when {
+                    !connected -> StatusChip("OFFLINE", Muse.Bad)
                     db.earning -> StatusChip("EARNING", Muse.Good, pulse = true)
                     db.running -> StatusChip("NOT EARNING YET", Muse.Warn)
                     else -> StatusChip("STOPPED", Muse.Bad)
@@ -187,11 +188,12 @@ private fun RecentJobsCard(e: Earnings) {
 }
 
 @Composable
-private fun ProviderCard(db: DarkbloomStats) {
+private fun ProviderCard(db: DarkbloomStats, connected: Boolean) {
     MuseCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(20.dp)) {
             CardHeader("Provider", subtitle = "Eigen Labs decentralized inference") {
-                StatusChip((db.trustStatus ?: if (db.running) "online" else "offline").uppercase(),
+                if (!connected) StatusChip("OFFLINE", Muse.Bad)
+                else StatusChip((db.trustStatus ?: if (db.running) "online" else "offline").uppercase(),
                     if (db.running) Muse.Good else Muse.Bad)
             }
             Spacer(Modifier.height(10.dp))

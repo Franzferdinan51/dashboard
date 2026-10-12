@@ -75,15 +75,15 @@ fun OverviewScreen(state: DashboardUiState, columns: Int, onRefresh: () -> Unit 
                     // Tablet: earnings beside network, LM Studio full width below.
                     item {
                         Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                            Column(Modifier.weight(1f)) { DarkbloomStrip(ov) }
+                            Column(Modifier.weight(1f)) { DarkbloomStrip(ov, state.connected) }
                             Column(Modifier.weight(1f)) { NetworkDiskCard(ov, state) }
                         }
                     }
-                    item { LmStudioCard(ov) }
+                    item { LmStudioCard(ov, state.connected) }
                 } else {
-                    item { DarkbloomStrip(ov) }
+                    item { DarkbloomStrip(ov, state.connected) }
                     item { NetworkDiskCard(ov, state) }
-                    item { LmStudioCard(ov) }
+                    item { LmStudioCard(ov, state.connected) }
                 }
                 item { Spacer(Modifier.height(10.dp)) }
             }
@@ -192,7 +192,7 @@ private fun GaugeCard(state: DashboardUiState, ov: Overview) {
     } ?: 0.0
     MuseCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(20.dp)) {
-            CardHeader("Live load", subtitle = "polls every ${state.refreshSeconds}s · drag down to refresh")
+            CardHeader("Live load", subtitle = if (state.connected) "polls every ${state.refreshSeconds}s · drag down to refresh" else "connection lost · last known values")
             Spacer(Modifier.height(14.dp))
             // Weight-based so the three gauges fit any phone width and spread on tablets.
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -219,14 +219,16 @@ private fun GaugeWithSpark(label: String, value: String, frac: Float, color: and
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun DarkbloomStrip(ov: Overview) {
+private fun DarkbloomStrip(ov: Overview, connected: Boolean) {
     val db = ov.darkbloom
     val e = db.earnings
     MuseCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(20.dp)) {
             CardHeader("Darkbloom provider",
-                subtitle = if (db.running) "v${db.version ?: "?"} · up ${fmtDuration(db.uptimeSeconds)}" else "not running") {
+                subtitle = if (!connected) "connection lost · last known"
+                    else if (db.running) "v${db.version ?: "?"} · up ${fmtDuration(db.uptimeSeconds)}" else "not running") {
                 when {
+                    !connected -> StatusChip("OFFLINE", Muse.Bad)
                     !db.installed -> StatusChip("NOT INSTALLED", Muse.TextDim)
                     !db.running -> StatusChip("STOPPED", Muse.Bad)
                     db.earning -> StatusChip("EARNING", Muse.Good, pulse = true)
@@ -323,16 +325,22 @@ private fun NetworkDiskCard(ov: Overview, state: DashboardUiState) {
 }
 
 @Composable
-private fun LmStudioCard(ov: Overview) {
+private fun LmStudioCard(ov: Overview, connected: Boolean) {
     val lm = ov.lmstudio
     MuseCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(20.dp)) {
             CardHeader("LM Studio") {
-                if (lm.reachable) StatusChip("${lm.loadedCount} LOADED", Muse.Good)
-                else StatusChip("UNREACHABLE", Muse.TextDim)
+                when {
+                    !connected -> StatusChip("OFFLINE", Muse.Bad)
+                    lm.reachable -> StatusChip("${lm.loadedCount} LOADED", Muse.Good)
+                    else -> StatusChip("UNREACHABLE", Muse.TextDim)
+                }
             }
             Spacer(Modifier.height(10.dp))
-            if (!lm.reachable) {
+            if (!connected) {
+                Text("Connection to the Mac is lost — this is the last known state.",
+                    style = MaterialTheme.typography.bodyMedium, color = Muse.TextDim)
+            } else if (!lm.reachable) {
                 Text("LM Studio's API isn't answering — the app may be closed or its server off.",
                     style = MaterialTheme.typography.bodyMedium, color = Muse.TextDim)
             } else if (lm.models.isEmpty()) {

@@ -96,9 +96,13 @@ private fun ProcessorCard(sys: SystemStats, state: DashboardUiState) {
     MuseCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(20.dp)) {
             CardHeader("Processor", subtitle = sys.chip) {
-                val nominal = sys.thermal.state.equals("nominal", true)
-                StatusChip(if (nominal) "THERMAL NOMINAL" else "THERMAL ${sys.thermal.state.uppercase()}",
-                    if (nominal) Muse.Good else Muse.Warn)
+                if (!state.connected) {
+                    StatusChip("OFFLINE", Muse.Bad)
+                } else {
+                    val nominal = sys.thermal.state.equals("nominal", true)
+                    StatusChip(if (nominal) "THERMAL NOMINAL" else "THERMAL ${sys.thermal.state.uppercase()}",
+                        if (nominal) Muse.Good else Muse.Warn)
+                }
             }
             Spacer(Modifier.height(12.dp))
             StackedBar(listOf(
