@@ -413,7 +413,7 @@ private fun CombinedProfitCard(state: DashboardUiState, ov: Overview) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     MiniStat("Per week", usdD(day * 7), Modifier.weight(1f))
                     MiniStat("Per month", usdD(day * 30), Modifier.weight(1f))
-                    MiniStat("Darkbloom balance", usdD(ov.darkbloom.earnings?.balanceUsd, 3), Modifier.weight(1f))
+                    MiniStat("Darkbloom balance", fmtUsd(ov.darkbloom.earnings?.balanceUsd), Modifier.weight(1f))
                 }
                 Spacer(Modifier.height(8.dp))
                 KeyValueRow("Darkbloom (realized, bridge ledger)",
