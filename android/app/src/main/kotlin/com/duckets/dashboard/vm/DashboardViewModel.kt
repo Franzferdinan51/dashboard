@@ -18,6 +18,8 @@ import kotlinx.coroutines.launch
 
 data class DashboardUiState(
     val overview: Overview? = null,
+    val mining: com.duckets.dashboard.data.MiningData? = null,
+    val windows: com.duckets.dashboard.data.WindowsData? = null,
     val connected: Boolean = false,
     val everConnected: Boolean = false,
     val lastError: String? = null,
@@ -67,6 +69,7 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
     private var pollJob: Job? = null
     private var testJob: Job? = null
     private var consecutiveFailures = 0
+    private var lastSideFetchMs = 0L
     @Volatile private var pendingRefresh = false
 
     init { startPolling() }
@@ -134,6 +137,21 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
                     netOutHistory = appendHist(s.netOutHistory, ov.system.network.rateOutBps.toDouble()),
                 )
             }
+            // Mining + Windows ride a slower cadence (~30s): both are
+            // SWR-cached on the bridge, so this mostly costs a local
+            // round-trip. Failures here never touch the main state — the
+            // tabs just keep their last data.
+            val nowMs = System.currentTimeMillis()
+            if (nowMs - lastSideFetchMs > 25_000L) {
+                lastSideFetchMs = nowMs
+                val mining = runCatching { repo.fetchMining(url) }.getOrNull()
+                val windows = runCatching { repo.fetchWindows(url) }.getOrNull()
+                if (mining != null || windows != null) {
+                    _state.update {
+                        it.copy(mining = mining ?: it.mining, windows = windows ?: it.windows)
+                    }
+                }
+            }
         } catch (e: CancellationException) {
             // Never swallow cancellation: a dying job writing error state here
             // could land after its replacement's first success and flip the
@@ -182,7 +200,8 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
         // never linger on screen as if they came from the new bridge.
         _state.update {
             it.copy(
-                bridgeUrl = clean, overview = null, connected = false, everConnected = false,
+                bridgeUrl = clean, overview = null, mining = null, windows = null,
+                connected = false, everConnected = false,
                 lastError = null, lastUpdatedMillis = 0L, dataTimestampMillis = 0L,
                 latencyMs = null, testState = TestState.Idle,
                 cpuHistory = emptyList(), ramHistory = emptyList(), gpuHistory = emptyList(),

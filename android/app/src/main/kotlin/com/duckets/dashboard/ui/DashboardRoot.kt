@@ -14,6 +14,8 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -25,6 +27,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountBalanceWallet
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.MonetizationOn
@@ -71,9 +76,12 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.duckets.dashboard.theme.Muse
 import com.duckets.dashboard.ui.components.PulseDot
 import com.duckets.dashboard.ui.screens.DarkbloomScreen
+import com.duckets.dashboard.ui.screens.EarningsScreen
+import com.duckets.dashboard.ui.screens.MiningScreen
 import com.duckets.dashboard.ui.screens.OverviewScreen
 import com.duckets.dashboard.ui.screens.SettingsScreen
 import com.duckets.dashboard.ui.screens.SystemScreen
+import com.duckets.dashboard.ui.screens.WindowsScreen
 import com.duckets.dashboard.vm.DashboardViewModel
 import kotlinx.coroutines.delay
 
@@ -81,6 +89,9 @@ enum class Tab(val label: String, val icon: ImageVector) {
     Overview("Overview", Icons.Filled.Dashboard),
     System("System", Icons.Filled.Memory),
     Darkbloom("Darkbloom", Icons.Filled.MonetizationOn),
+    Mining("Mining", Icons.Filled.Bolt),
+    Earnings("Earnings", Icons.Filled.AccountBalanceWallet),
+    Windows("Windows", Icons.Filled.Computer),
     Settings("Settings", Icons.Filled.Settings),
 }
 
@@ -111,6 +122,9 @@ fun DashboardRoot(windowSizeClass: WindowSizeClass) {
     val overviewListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
     val systemListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
     val darkbloomListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
+    val miningListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
+    val earningsListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
+    val windowsListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
     val settingsListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
 
     // Adaptive: phones (Compact) get bottom nav + 1 column; tablets, foldables
@@ -170,20 +184,27 @@ fun DashboardRoot(windowSizeClass: WindowSizeClass) {
                         containerColor = androidx.compose.ui.graphics.Color.Transparent,
                         modifier = Modifier.padding(top = 8.dp),
                     ) {
-                        Tab.entries.forEach { t ->
-                            NavigationRailItem(
-                                selected = tab == t,
-                                onClick = { tabName = t.name },
-                                icon = { Icon(t.icon, t.label) },
-                                label = { Text(t.label) },
-                                colors = NavigationRailItemDefaults.colors(
-                                    selectedIconColor = Muse.Mist,
-                                    selectedTextColor = Muse.Mist,
-                                    indicatorColor = Muse.Blue,
-                                    unselectedIconColor = Muse.TextDim,
-                                    unselectedTextColor = Muse.TextDim,
-                                ),
-                            )
+                        // Seven destinations overflow short landscape
+                        // screens (720dp phones): the rail scrolls.
+                        Column(
+                            Modifier.verticalScroll(rememberScrollState()),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Tab.entries.forEach { t ->
+                                NavigationRailItem(
+                                    selected = tab == t,
+                                    onClick = { tabName = t.name },
+                                    icon = { Icon(t.icon, t.label) },
+                                    label = { Text(t.label) },
+                                    colors = NavigationRailItemDefaults.colors(
+                                        selectedIconColor = Muse.Mist,
+                                        selectedTextColor = Muse.Mist,
+                                        indicatorColor = Muse.Blue,
+                                        unselectedIconColor = Muse.TextDim,
+                                        unselectedTextColor = Muse.TextDim,
+                                    ),
+                                )
+                            }
                         }
                     }
                 }
@@ -200,6 +221,9 @@ fun DashboardRoot(windowSizeClass: WindowSizeClass) {
                             Tab.Overview -> OverviewScreen(state, columns, onRefresh = { vm.refreshNow() }, listState = overviewListState)
                             Tab.System -> SystemScreen(state, columns, onRefresh = { vm.refreshNow() }, listState = systemListState)
                             Tab.Darkbloom -> DarkbloomScreen(state, columns, onRefresh = { vm.refreshNow() }, listState = darkbloomListState)
+                            Tab.Mining -> MiningScreen(state, columns, onRefresh = { vm.refreshNow() }, listState = miningListState)
+                            Tab.Earnings -> EarningsScreen(state, columns, onRefresh = { vm.refreshNow() }, listState = earningsListState)
+                            Tab.Windows -> WindowsScreen(state, columns, onRefresh = { vm.refreshNow() }, listState = windowsListState)
                             Tab.Settings -> SettingsScreen(state, vm, columns, listState = settingsListState)
                         }
                     }
