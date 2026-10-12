@@ -284,20 +284,23 @@
   </section>
 
   <section class="card s6" data-views="mining">
-    <h2>Crypto mining — Kryptex fleet <span class="right" id="mineAsOf">—</span></h2>
-    <div class="big" id="mineBig">—</div>
-    <div class="rows" id="mineRows"></div>
-    <h2 style="margin-top:14px">By coin</h2>
-    <div id="mineCoins"></div>
-    <div class="note" id="mineNote"></div>
+    <h2>Batman-3 — verified mining earnings <span class="right">miner log × live network</span></h2>
+    <div class="big" id="verBig">—</div>
+    <div class="rows" id="verRows"></div>
+    <div class="note">Computed from the miner's own log (sustained average hashrate) × live Pearl network emission (WhatToMine) × live PRL price (CoinGecko), less Kryptex's 3% pool fee. Kryptex's dashboard figures are not an input — their 24h worker stats are broken and their $ amounts ride a noisy 30-minute pool-side hashrate.</div>
+  </section>
+
+  <section class="card s6" data-views="mining">
+    <h2>Hashrate history — the miner's log <span class="right" id="histRange">—</span></h2>
+    <canvas class="chart" id="chHist" height="180"></canvas>
+    <div class="legend"><span><i style="background:var(--amber)"></i>Batman-3 TH/s (SRBMiner log + bridge ledger)</span></div>
+    <div class="rows" id="histRows"></div>
   </section>
 
   <section class="card s6" data-views="mining">
     <h2>Batman-3 — live miner <span class="right">via Windows probe</span></h2>
     <div class="chips" id="mineLiveChips"></div>
     <div class="rows" id="mineLiveRows"></div>
-    <h2 style="margin-top:14px">Rigs</h2>
-    <div id="mineRigs"></div>
   </section>
 
   <section class="card s6" data-views="win">
@@ -346,7 +349,7 @@
     <div class="legend">
       <span><i style="background:var(--green)"></i>Combined</span>
       <span><i style="background:var(--cyan)"></i>Darkbloom (ledger)</span>
-      <span><i style="background:var(--amber)"></i>Mining (modeled from snapshot rate)</span>
+      <span><i style="background:var(--amber)"></i>Mining — Batman-3 (modeled at verified rate)</span>
     </div>
   </section>
 
@@ -998,53 +1001,42 @@ function plotMulti(cv, seriesArr, fmtY) {
 
 function renderMining(mn) {
   lastMining = mn;
-  const fleet = mn.fleet, tot = mn.totals, live = mn.batman_live;
-  $("kMine").textContent = tot ? fmtUsd(tot.per_day_usd, 2) : "—";
-  $("kMineS").textContent = tot ? `${fmtUsd(tot.per_month_usd, 0)}/mo · Kryptex` : "no fleet data";
-  if (!fleet) {
-    $("mineBig").textContent = "—";
-    $("mineNote").textContent = "No fleet snapshot on the bridge yet (~/dashboard-bridge/mining.json).";
-    return;
+  const ver = mn.batman_verified, live = mn.batman_live, hist = mn.batman_history;
+  $("kMine").textContent = ver ? fmtUsd(ver.usd_per_day_net, 2) : "—";
+  $("kMineS").textContent = ver ? "Batman-3 · verified live calc" : "no verified data";
+  if (ver) {
+    $("verBig").textContent = fmtUsd(ver.usd_per_day_net, 2) + " /day net";
+    $("verRows").innerHTML =
+      row("Verified gross", `${fmtUsd(ver.usd_per_day_gross, 2)}/day · ${ver.prl_per_day_gross} PRL/day`) +
+      row("Verified / week · / month", `${fmtUsd(ver.usd_per_week_net, 2)} · ${fmtUsd(ver.usd_per_month_net, 2)}`) +
+      row("Hashrate basis", `${ver.hashrate_basis_ths} TH/s (${esc(ver.hashrate_basis)})`) +
+      row("PRL price", `${fmtUsd(ver.network.price_usd, 2)} (${esc(ver.network.price_source)})`) +
+      row("Network", `${(ver.network.nethash_ths / 1e6).toFixed(1)} EH/s · ${fmtUsd(ver.network.usd_per_th_day, 4)}/TH/day · fee ${ver.network.pool_fee_pct}%`) +
+      row("Kryptex claims (12:32 PM snapshot)", ver.kryptex_claim_per_day_usd != null
+        ? `${fmtUsd(ver.kryptex_claim_per_day_usd, 2)}/day — verified runs ${ver.delta_vs_claim_pct >= 0 ? "+" : ""}${ver.delta_vs_claim_pct}% vs the claim` : "—");
+  } else {
+    $("verBig").textContent = "—";
+    $("verRows").innerHTML = row("Status", "waiting on live hashrate + network data");
   }
-  $("mineAsOf").textContent = `as of ${fmtClock(fleet.as_of)} (${fmtAgo(fleet.as_of)})`;
-  $("mineBig").textContent = fmtUsd(tot.per_day_usd, 2) + " /day";
-  const rigCount = fleet.coins.reduce((a, c) => a + (c.rigs || []).length, 0);
-  $("mineRows").innerHTML =
-    row("Per week", fmtUsd(tot.per_week_usd, 2)) +
-    row("Per month", fmtUsd(tot.per_month_usd, 2)) +
-    row("Per year", fmtUsd(tot.per_year_usd, 0)) +
-    row("Rigs", fmtInt(rigCount)) +
-    row("Source", esc(fleet.source || "Kryptex"));
-  $("mineCoins").innerHTML = fleet.coins.map(c => {
-    const day = (c.rigs || []).reduce((a, r) => a + (r.per_day_usd || 0), 0);
-    const mo = (c.rigs || []).reduce((a, r) => a + (r.per_month_usd || 0), 0);
-    return `<div class="row"><span class="k">${esc(c.coin)} · ${esc(c.scheme)} · ${esc(c.miner)}</span>
-      <span class="v">${fmtUsd(day, 2)}/day · ${fmtUsd(mo, 0)}/mo</span></div>
-      <div class="bar single"><i style="width:${tot.per_day_usd ? day / tot.per_day_usd * 100 : 0}%;background:#ffb84d"></i></div>`;
-  }).join("");
-  $("mineNote").textContent =
-    "Kryptex's own estimates from a manual snapshot — they move with coin price and network difficulty. Send a fresh Kryptex screenshot to update them. Batman-3 below is live.";
-  // rigs table
-  const wm = (lastWindows && lastWindows.miner) || {};
-  $("mineRigs").innerHTML = `<table><tr><th>Rig</th><th>Coin</th><th class="num">30m</th><th class="num">24h</th><th class="num">$/day</th><th class="num">$/mo</th></tr>${
-    fleet.coins.flatMap(c => (c.rigs || []).map(r => `<tr>
-      <td>${esc(r.name)}${r.name === "Batman-3" && live ? ` <span class="chip ${live.running ? "ok" : "bad"}" style="padding:0 7px"><span class="dot"></span>${live.running ? "LIVE " + (live.hashrate_ths ?? "—") + " TH/s" : "miner off"}</span>` : ""}</td>
-      <td>${esc(c.coin.split(" ")[0])}</td><td class="num">${esc(r.hashrate_30m || "—")}</td>
-      <td class="num">${esc(r.hashrate_24h || "—")}</td>
-      <td class="num">${fmtUsd(r.per_day_usd, 2)}</td><td class="num">${fmtUsd(r.per_month_usd, 0)}</td></tr>`)).join("")}</table>`;
+  if (hist && (hist.points || []).length >= 2) {
+    $("histRange").textContent = `${hist.span_hours}h of log · ${fmtInt(hist.sample_count)} samples`;
+    plotMulti($("chHist"), [{ pts: hist.points, color: "#ffb84d", width: 1.8 }],
+      v => v.toFixed(0) + "");
+    $("histRows").innerHTML =
+      row("Coverage", `${fmtClock(hist.coverage_from)} → ${fmtClock(hist.coverage_to)}`) +
+      row("Average (active)", hist.avg_active_ths != null ? `${hist.avg_active_ths} TH/s` : "—") +
+      row("Average (overall)", hist.avg_overall_ths != null ? `${hist.avg_overall_ths} TH/s` : "—") +
+      row("Uptime in log", hist.uptime_fraction != null ? Math.round(hist.uptime_fraction * 100) + "%" : "—") +
+      row("Realized in window", hist.realized_prl_est != null
+        ? `${hist.realized_prl_est} PRL ≈ ${fmtUsd(hist.realized_usd_net_est, 2)} net` : "—") +
+      row("Realized basis", esc(hist.realized_basis || "—"));
+  }
   $("mineLiveChips").innerHTML = live
     ? chip(live.running ? "MINER RUNNING" : "MINER STOPPED", live.running ? "ok" : "bad") +
       (live.stale ? chip("last known", "warn") : chip("live", "blue"))
     : chip("PC UNREACHABLE", "bad");
-  const ver = mn.batman_verified;
+  const wm = (lastWindows && lastWindows.miner) || {};
   $("mineLiveRows").innerHTML = live ? (
-    (ver ? `<div class="row"><span class="k" style="color:var(--green);font-weight:700">Verified revenue (live calc)</span>
-      <span class="v" style="color:var(--green)">${fmtUsd(ver.usd_per_day_net, 2)}/day net</span></div>` +
-    row("Verified gross", `${fmtUsd(ver.usd_per_day_gross, 2)}/day · ${ver.prl_per_day_gross} PRL/day`) +
-    row("Verified / week · / month", `${fmtUsd(ver.usd_per_week_net, 2)} · ${fmtUsd(ver.usd_per_month_net, 2)}`) +
-    row("Kryptex claims", ver.kryptex_claim_per_day_usd != null
-      ? `${fmtUsd(ver.kryptex_claim_per_day_usd, 2)}/day (${ver.delta_vs_claim_pct >= 0 ? "+" : ""}${ver.delta_vs_claim_pct}% vs verified)` : "—") +
-    row("Calc basis", `${ver.hashrate_basis_ths} TH/s (${esc(ver.hashrate_basis)}) · PRL ${fmtUsd(ver.network.price_usd, 2)} (${esc(ver.network.price_source)}) · net ${(ver.network.nethash_ths / 1e6).toFixed(1)} EH/s · ${fmtUsd(ver.network.usd_per_th_day, 4)}/TH/day · fee ${ver.network.pool_fee_pct}%`) : "") +
     row("Hashrate now", live.hashrate_ths != null ? `${live.hashrate_ths} TH/s` : "—") +
     row("Average 1h", live.avg_1h_ths != null ? `${live.avg_1h_ths} TH/s` : "—") +
     row("Miner power", live.power_w != null ? `${live.power_w} W` : "—") +
@@ -1114,7 +1106,7 @@ function renderCombined() {
   const dbE = (lastOverview && lastOverview.darkbloom && lastOverview.darkbloom.earnings) || {};
   const est = dbE.estimates || null;
   const dbDay = est ? est.per_day_usd : null;
-  const mineDay = lastMining && lastMining.totals ? lastMining.totals.per_day_usd : null;
+  const mineDay = lastMining && lastMining.batman_verified ? lastMining.batman_verified.usd_per_day_net : null;
   if (dbDay == null && mineDay == null) { $("combDay").textContent = "—"; return; }
   const day = (dbDay || 0) + (mineDay || 0);
   $("combDay").textContent = fmtUsd(day, 2);
@@ -1124,13 +1116,12 @@ function renderCombined() {
     d == null ? "—" : `${fmtUsd(d, 2)} <span style="color:var(--faint)">· ${fmtUsd(d * 7, 2)}/wk · ${fmtUsd(d * 30, 2)}/mo</span>`);
   $("combRows").innerHTML =
     line("Darkbloom (realized, bridge ledger)", dbDay) +
-    line("Mining (Kryptex snapshot)", mineDay) +
+    line("Mining — Batman-3 (verified, miner log)", mineDay) +
     row("Darkbloom share", dbDay != null && day > 0 ? Math.round(dbDay / day * 100) + "%" : "—") +
     row("Mining share", mineDay != null && day > 0 ? Math.round(mineDay / day * 100) + "%" : "—") +
     row("Darkbloom balance", fmtUsd(dbE.balance_usd, 4));
   $("combNote").textContent =
-    "Two different kinds of truth: Darkbloom is realized money from the bridge's ledger; mining is Kryptex's estimate from the last snapshot" +
-    (lastMining && lastMining.fleet ? ` (${fmtAgo(lastMining.fleet.as_of)} old)` : "") + ". The combined graph accrues mining at that snapshot rate from the day tracking began.";
+    "Two different kinds of truth, both computed by the bridge: Darkbloom is realized money from its earnings ledger; mining is Batman-3 only, computed from the miner's own log at live network rates. The rest of the Kryptex fleet is excluded \u2014 no trusted source for it. The combined graph accrues mining at the verified rate from the day tracking began.";
   // combined graph
   const series = (est && est.series) || [];
   if (series.length >= 2 && mineDay != null) {
