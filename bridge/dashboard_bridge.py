@@ -19,6 +19,12 @@ Endpoints:
     GET  /api/decisions -> recent state-change events (?limit=50)
     GET  /api/windows   -> Windows PC (Batman-3) vitals + miner state
     GET  /api/mining    -> Kryptex mining fleet + Batman-3 live miner
+    GET  /api/actions   -> action surface state (LM Studio loaded/available
+                           models, Darkbloom + miner + bridge state)
+    POST /api/action    -> run an action {"action": ..., "target": ...}
+                           (lm_load / lm_unload / darkbloom_restart /
+                           miner_start / miner_stop / bridge_restart);
+                           every attempt is logged to actions.jsonl
     POST /mcp           -> MCP server (read-only tools: health, overview,
                            system, darkbloom, lmstudio, decisions)
 
@@ -53,7 +59,7 @@ DARKBLOOM_STATE = os.path.join(HOME, ".darkbloom", "daemon-state.json")
 DARKBLOOM_TOKEN = os.path.join(HOME, ".darkbloom", "auth_token")
 LMSTUDIO_KEY = os.path.join(HOME, ".config", "lmstudio", "api_key")
 LMSTUDIO_BASE = "http://127.0.0.1:1234"
-BRIDGE_VERSION = "1.9.0"
+BRIDGE_VERSION = "1.10.0"
 _STARTED_AT = time.time()
 
 # --------------------------------------------------------------------------
@@ -1486,6 +1492,220 @@ def mining_stats():
 
 
 # --------------------------------------------------------------------------
+# actions — the bridge's one write surface (POST /api/action)
+#
+# Everything else in this file observes; these act: load/unload LM Studio
+# models via the `lms` CLI (the /v1 API can't), restart the Darkbloom
+# provider, start/stop Batman-3's SRBMiner, restart this bridge. Model
+# targets are validated against the live `lms ls` / `lms ps` lists before
+# they reach a subprocess (always list form, never a shell), so a crafted
+# target can't become an argument injection. Every attempt — success,
+# failure, rejected — is appended to ~/dashboard-bridge/actions.jsonl.
+# --------------------------------------------------------------------------
+
+LMS_BIN = os.path.join(HOME, ".lmstudio", "bin", "lms")
+ACTIONS_LOG = os.path.join(HOME, "dashboard-bridge", "actions.jsonl")
+
+
+def _run_full(cmd, timeout=30):
+    """subprocess (list form) returning (returncode, stdout, stderr);
+    (-1, '', error) when the command can't even launch or times out.
+    run() above can't serve actions — it swallows the exit code."""
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True,
+                           timeout=timeout)
+        return p.returncode, p.stdout or "", p.stderr or ""
+    except Exception as e:
+        return -1, "", str(e)
+
+
+def _tail(text, n=300):
+    return (text or "").strip()[-n:]
+
+
+def _lms_loaded():
+    """Currently loaded models from `lms ps` (table rows; first column is
+    the identifier). [] when lms is missing or nothing is loaded."""
+    if not os.path.exists(LMS_BIN):
+        return []
+    out = run([LMS_BIN, "ps"], timeout=15)
+    loaded = []
+    for line in (out or "").splitlines():
+        s = line.strip()
+        if not s or s.startswith("No models"):
+            continue
+        if s.upper().startswith("IDENTIFIER") or s.startswith("Currently"):
+            continue  # table header / preamble
+        if set(s) <= set("-=─ "):
+            continue  # separator rule
+        ident = s.split()[0]
+        if ident in ("-", "•"):
+            continue
+        loaded.append({"identifier": ident})
+    return loaded
+
+
+def _lms_available():
+    """Downloaded models from `lms ls`: after a 'You have N models…'
+    summary, a table whose rows carry a '<n> GB' size — the model key is
+    the row's first token. [] when lms is missing/fails."""
+    if not os.path.exists(LMS_BIN):
+        return []
+    out = run([LMS_BIN, "ls"], timeout=20)
+    avail = []
+    for line in (out or "").splitlines():
+        s = line.strip()
+        if not s or s.startswith("You have"):
+            continue
+        m = re.search(r"([\d.]+)\s*(GB|MB)\b", s)
+        if not m:
+            continue  # header and other non-model lines have no size
+        key = s.split()[0]
+        if key.endswith(":") or key.lower() == "total":
+            continue  # summary/footer lines, not models
+        avail.append({"key": key, "size": f"{m.group(1)} {m.group(2)}"})
+    return avail
+
+
+def _darkbloom_launchd_running():
+    """Darkbloom per launchd: `launchctl list` shows the job with a
+    numeric PID in column 1 when running ('-' when loaded but stopped)."""
+    out = run(["launchctl", "list"], timeout=5)
+    for line in (out or "").splitlines():
+        parts = line.split()
+        if len(parts) >= 3 and parts[2] == "io.darkbloom.provider":
+            return parts[0].isdigit()
+    return False
+
+
+def _miner_running():
+    win = windows_stats()
+    return bool(((win or {}).get("miner") or {}).get("running"))
+
+
+def actions_stats():
+    def build():
+        win = windows_stats()
+        return {
+            "lmstudio": {"loaded": _lms_loaded(),
+                         "available": _lms_available()},
+            "darkbloom": {"running": _darkbloom_launchd_running()},
+            "mining": {"miner_running": bool(
+                ((win or {}).get("miner") or {}).get("running"))},
+            "bridge": {"version": BRIDGE_VERSION},
+        }
+    # lms ls/ps take ~1s each — serve stale-while-revalidate like the
+    # other slow probes so a poll never blocks on them.
+    return cached("actions", 12, build, swr=True)
+
+
+def _log_action(action, target, ok, message):
+    """Append the attempt to the actions ledger. Best-effort: a logging
+    failure must never break (or mask) the action itself."""
+    try:
+        with open(ACTIONS_LOG, "a") as f:
+            f.write(json.dumps({"ts": time.time(), "action": action,
+                                "target": target, "ok": bool(ok),
+                                "message": message}) + "\n")
+    except Exception:
+        pass
+
+
+def _batman_ps(script, timeout=60):
+    """Run a PowerShell snippet on Batman-3 via batman-ssh, same
+    EncodedCommand mechanism as the windows probe. (rc, stdout, stderr)."""
+    enc = base64.b64encode(script.encode("utf-16-le")).decode()
+    ssh = os.path.expanduser("~/bin/batman-ssh")
+    return _run_full([ssh if os.path.exists(ssh) else "batman-ssh",
+                      f"powershell -NoProfile -EncodedCommand {enc}"],
+                     timeout)
+
+
+_MINER_START_PS = (
+    "(Invoke-CimMethod -ClassName Win32_Process -MethodName Create "
+    "-Arguments @{ CommandLine = 'cmd /c "
+    "\"C:\\Users\\Duckets\\Desktop\\srbminer\\Mine-Pearl-Logged.bat\"' }"
+    ").ReturnValue"
+)
+
+
+def _do_action(action, target):
+    """Execute one action. Returns (http_code, ok, message, after) where
+    `after` is an optional callable the handler runs only AFTER the
+    response is sent (bridge_restart must answer before it kills us).
+    400s are for malformed/unknown/unvalidated input; an action that ran
+    and failed is a 200 with ok=False."""
+    if action == "lm_load":
+        if not isinstance(target, str) or not target:
+            return 400, False, "lm_load needs a model key in 'target'", None
+        keys = [m["key"] for m in _lms_available()]
+        if target not in keys:
+            return 400, False, f"unknown model key: {target}", None
+        rc, out, err = _run_full([LMS_BIN, "load", target], timeout=900)
+        if rc == 0:
+            if target in [m["identifier"] for m in _lms_loaded()]:
+                return 200, True, f"Loaded {target}", None
+            return 200, True, f"Loaded {target} (lms exit 0)", None
+        return 200, False, _tail(err or out) or f"lms load exited {rc}", None
+
+    if action == "lm_unload":
+        if not isinstance(target, str) or not target:
+            return 400, False, "lm_unload needs a loaded identifier in 'target'", None
+        ids = [m["identifier"] for m in _lms_loaded()]
+        if target not in ids:
+            return 400, False, f"model not loaded: {target}", None
+        rc, out, err = _run_full([LMS_BIN, "unload", target], timeout=120)
+        if rc == 0:
+            return 200, True, f"Unloaded {target}", None
+        return 200, False, _tail(err or out) or f"lms unload exited {rc}", None
+
+    if action == "darkbloom_restart":
+        rc, out, err = _run_full(
+            ["launchctl", "kickstart", "-k",
+             f"gui/{os.getuid()}/io.darkbloom.provider"], timeout=30)
+        if rc == 0:
+            return 200, True, "Darkbloom provider restarted", None
+        return 200, False, _tail(err or out) or f"launchctl exited {rc}", None
+
+    if action == "miner_start":
+        if _miner_running():
+            return 200, True, "already running", None
+        rc, out, err = _batman_ps(_MINER_START_PS, timeout=60)
+        ret = (out or "").strip().splitlines()
+        if rc == 0 and ret and ret[-1].strip() == "0":
+            return 200, True, "Miner start issued on Batman-3", None
+        return 200, False, (_tail(err or out)
+                            or f"miner start failed (rc={rc})"), None
+
+    if action == "miner_stop":
+        if not _miner_running():
+            return 200, True, "was not running", None
+        rc, out, err = _batman_ps("taskkill /IM SRBMiner-MULTI.exe /F",
+                                  timeout=60)
+        combined = (out or "") + (err or "")
+        if rc == 0:
+            return 200, True, "Miner stopped on Batman-3", None
+        if "not found" in combined.lower():
+            return 200, True, "was not running", None
+        return 200, False, _tail(combined) or f"taskkill exited {rc}", None
+
+    if action == "bridge_restart":
+        def _restart():
+            try:
+                subprocess.Popen(
+                    ["/bin/sh", "-c",
+                     f"(sleep 1; launchctl kickstart -k "
+                     f"gui/{os.getuid()}/com.duckets.dashboard-bridge)"],
+                    start_new_session=True,
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except Exception:
+                pass
+        return 200, True, "Bridge restart scheduled", _restart
+
+    return 400, False, f"unknown action: {action}", None
+
+
+# --------------------------------------------------------------------------
 # MCP — minimal read-only MCP server (streamable HTTP, stateless)
 #
 # POST /mcp with JSON-RPC 2.0: initialize / ping / tools/list / tools/call.
@@ -1701,6 +1921,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send({"generated_at": time.time(), "windows": windows_stats()})
             elif path == "/api/mining":
                 self._send({"generated_at": time.time(), "mining": mining_stats()})
+            elif path == "/api/actions":
+                self._send(actions_stats())
             elif path == "/api/decisions":
                 qs = urllib.parse.urlparse(self.path).query
                 limit = urllib.parse.parse_qs(qs).get("limit", ["50"])[0]
@@ -1721,6 +1943,38 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         try:
             path = self.path.split("?")[0].rstrip("/") or "/"
+            if path == "/api/action":
+                length = int(self.headers.get("Content-Length") or 0)
+                raw = self.rfile.read(length) if length > 0 else b""
+                try:
+                    payload = json.loads(raw.decode("utf-8")) if raw else {}
+                except Exception:
+                    payload = None
+                if not isinstance(payload, dict):
+                    self._send({"ok": False,
+                                "error": "body must be a JSON object"}, 400)
+                    return
+                action = payload.get("action")
+                target = payload.get("target")
+                if not isinstance(action, str) or not action:
+                    self._send({"ok": False,
+                                "error": "missing 'action'"}, 400)
+                    return
+                code, ok, message, after = _do_action(action, target)
+                if code == 400:
+                    body = {"ok": False, "error": message}
+                else:
+                    body = {"ok": ok, "action": action, "message": message}
+                self._send(body, code)
+                # Log after the response is away — for bridge_restart the
+                # process may be gone a second later; the `after` hook
+                # (which arms the restart) runs last of all.
+                _log_action(action,
+                            target if isinstance(target, str) else None,
+                            ok, message)
+                if after is not None:
+                    after()
+                return
             if path != "/mcp":
                 self._send({"error": "not found"}, 404)
                 return
