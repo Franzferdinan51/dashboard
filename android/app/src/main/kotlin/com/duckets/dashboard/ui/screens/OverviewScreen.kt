@@ -61,7 +61,7 @@ fun OverviewScreen(state: DashboardUiState, columns: Int, onRefresh: () -> Unit 
     val ov = state.overview
     val hPad = if (columns >= 2) 24.dp else 16.dp
     val maxW = if (columns >= 2) 1080.dp else 720.dp
-    PullToRefreshBox(isRefreshing = state.isRefreshing, onRefresh = onRefresh, modifier = modifier.fillMaxSize()) {
+    PullToRefreshBox(isRefreshing = state.isPullRefreshing, onRefresh = onRefresh, modifier = modifier.fillMaxSize()) {
         androidx.compose.foundation.layout.Box(Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.TopCenter) {
         LazyColumn(
             Modifier.fillMaxSize().widthIn(max = maxW).padding(horizontal = hPad),
@@ -141,7 +141,7 @@ private fun HeroCard(state: DashboardUiState) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 MiniStat("Uptime", fmtDuration(sys?.uptimeSeconds), Modifier.weight(1f))
                 MiniStat("Load", sys?.loadAvg?.takeIf { it.isNotEmpty() }
-                    ?.joinToString(" ") { String.format("%.2f", it) } ?: "—", Modifier.weight(1f))
+                    ?.joinToString(" ") { String.format(java.util.Locale.US, "%.2f", it) } ?: "—", Modifier.weight(1f))
                 MiniStat("Thermal", (sys?.thermal?.state ?: "—").replaceFirstChar { it.uppercase() }, Modifier.weight(1f))
                 MiniStat("Net in", fmtRate(sys?.network?.rateInBps ?: 0), Modifier.weight(1f))
             }

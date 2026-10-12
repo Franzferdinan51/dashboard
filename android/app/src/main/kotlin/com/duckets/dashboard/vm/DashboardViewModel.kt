@@ -30,6 +30,10 @@ data class DashboardUiState(
     val bridgeUrl: String = DEFAULT_BRIDGE_URL,
     val refreshSeconds: Int = DEFAULT_REFRESH_SECONDS,
     val isRefreshing: Boolean = false,
+    /** True only while an explicit refresh (pull-to-refresh, header
+     * button, retry) is in flight — background polls never set it, so
+     * the pull-to-refresh indicator doesn't flash on every poll. */
+    val isPullRefreshing: Boolean = false,
     val latencyMs: Long? = null,
     val testState: TestState = TestState.Idle,
     val actions: ActionsUiState = ActionsUiState(),
@@ -90,6 +94,12 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
     private var pollJob: Job? = null
     private var testJob: Job? = null
     private var consecutiveFailures = 0
+    /** Bumped on every bridge-URL change. Fetches and actions capture it
+     * at launch and refuse to write state if it has moved on — an
+     * in-flight request to the OLD bridge must never land on the new
+     * one's screen (the repo only cancels on coroutine cancellation,
+     * and not every caller is cancelled by a URL switch). */
+    private var urlGeneration = 0
     private var lastSideFetchMs = 0L
     @Volatile private var pendingRefresh = false
 
@@ -132,42 +142,49 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
             return
         }
         val url = _state.value.bridgeUrl
+        val gen = urlGeneration
         _state.update { it.copy(isRefreshing = true) }
         val started = System.currentTimeMillis()
         try {
             val ov = repo.fetchOverview(url)
             val latency = System.currentTimeMillis() - started
-            consecutiveFailures = 0
+            if (gen == urlGeneration) consecutiveFailures = 0
             _state.update { s ->
-                val gpuPct = ov.darkbloom.capacityTotalGb?.let { total ->
-                    ov.darkbloom.gpuActiveGb?.let { active ->
-                        if (total > 0) (active / total * 100).toFloat() else 0f
-                    }
-                } ?: 0f
-                fun appendHist(old: List<Float>, v: Double): List<Float> =
-                    if (v.isFinite()) (old + v.toFloat()).takeLast(90) else old
-                s.copy(
-                    overview = ov, connected = true, everConnected = true,
-                    lastError = null, isRefreshing = false, latencyMs = latency,
-                    lastUpdatedMillis = System.currentTimeMillis(),
-                    dataTimestampMillis = (ov.generatedAt * 1000).toLong(),
-                    cpuHistory = appendHist(s.cpuHistory, ov.system.cpu.usedPct),
-                    ramHistory = appendHist(s.ramHistory, ov.system.memory.usedPct),
-                    gpuHistory = appendHist(s.gpuHistory, gpuPct.toDouble()),
-                    netInHistory = appendHist(s.netInHistory, ov.system.network.rateInBps.toDouble()),
-                    netOutHistory = appendHist(s.netOutHistory, ov.system.network.rateOutBps.toDouble()),
-                )
+                if (gen != urlGeneration) {
+                    // The URL changed mid-flight: this sample belongs to
+                    // the old bridge — drop it, just release the flag.
+                    s.copy(isRefreshing = false)
+                } else {
+                    val gpuPct = ov.darkbloom.capacityTotalGb?.let { total ->
+                        ov.darkbloom.gpuActiveGb?.let { active ->
+                            if (total > 0) (active / total * 100).toFloat() else 0f
+                        }
+                    } ?: 0f
+                    fun appendHist(old: List<Float>, v: Double): List<Float> =
+                        if (v.isFinite()) (old + v.toFloat()).takeLast(90) else old
+                    s.copy(
+                        overview = ov, connected = true, everConnected = true,
+                        lastError = null, isRefreshing = false, latencyMs = latency,
+                        lastUpdatedMillis = System.currentTimeMillis(),
+                        dataTimestampMillis = (ov.generatedAt * 1000).toLong(),
+                        cpuHistory = appendHist(s.cpuHistory, ov.system.cpu.usedPct),
+                        ramHistory = appendHist(s.ramHistory, ov.system.memory.usedPct),
+                        gpuHistory = appendHist(s.gpuHistory, gpuPct.toDouble()),
+                        netInHistory = appendHist(s.netInHistory, ov.system.network.rateInBps.toDouble()),
+                        netOutHistory = appendHist(s.netOutHistory, ov.system.network.rateOutBps.toDouble()),
+                    )
+                }
             }
             // Mining + Windows ride a slower cadence (~30s): both are
             // SWR-cached on the bridge, so this mostly costs a local
             // round-trip. Failures here never touch the main state — the
             // tabs just keep their last data.
             val nowMs = System.currentTimeMillis()
-            if (nowMs - lastSideFetchMs > 25_000L) {
+            if (gen == urlGeneration && nowMs - lastSideFetchMs > 25_000L) {
                 lastSideFetchMs = nowMs
                 val mining = runCatching { repo.fetchMining(url) }.getOrNull()
                 val windows = runCatching { repo.fetchWindows(url) }.getOrNull()
-                if (mining != null || windows != null) {
+                if ((mining != null || windows != null) && gen == urlGeneration) {
                     _state.update {
                         it.copy(mining = mining ?: it.mining, windows = windows ?: it.windows)
                     }
@@ -180,21 +197,40 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
             _state.update { it.copy(isRefreshing = false) }
             throw e
         } catch (e: Exception) {
-            consecutiveFailures++
-            _state.update {
-                it.copy(
-                    // Two-strike debounce: a single flaky poll (slow bridge,
-                    // network hiccup) must not flap every chip to OFFLINE;
-                    // the second consecutive failure declares it for real.
-                    connected = if (consecutiveFailures >= 2) false else it.connected,
-                    isRefreshing = false,
-                    lastError = friendlyError(e),
-                )
+            if (gen != urlGeneration) {
+                // A failure from the old bridge must not mark the new one
+                // offline, burn one of its two strikes, or leave its error
+                // on screen.
+                _state.update { it.copy(isRefreshing = false) }
+            } else {
+                consecutiveFailures++
+                _state.update {
+                    it.copy(
+                        // Two-strike debounce: a single flaky poll (slow bridge,
+                        // network hiccup) must not flap every chip to OFFLINE;
+                        // the second consecutive failure declares it for real.
+                        connected = if (consecutiveFailures >= 2) false else it.connected,
+                        isRefreshing = false,
+                        lastError = friendlyError(e),
+                    )
+                }
             }
         }
     }
 
-    fun refreshNow() { viewModelScope.launch { refreshOnce() } }
+    /** Explicit refresh (pull-to-refresh, header button, retry banner,
+     * reconnect): the only path that lights the pull-to-refresh
+     * indicator. Background polls call refreshOnce directly. */
+    fun refreshNow() {
+        _state.update { it.copy(isPullRefreshing = true) }
+        viewModelScope.launch {
+            try {
+                refreshOnce()
+            } finally {
+                _state.update { it.copy(isPullRefreshing = false) }
+            }
+        }
+    }
 
     fun refreshActions() {
         viewModelScope.launch {
@@ -238,9 +274,16 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
             "bridge_restart" -> "bridge"
             else -> return
         }
-        if (_state.value.actions.inFlight != null) return
-        viewModelScope.launch {
-            _state.update {
+        // Claim the one-at-a-time slot synchronously, before launching:
+        // when inFlight was set inside the coroutine, a fast double-tap
+        // on the confirm button could pass the null check twice and
+        // fire the action twice (two miner starts, two loads).
+        var claimed = false
+        _state.update {
+            if (it.actions.inFlight != null) {
+                it
+            } else {
+                claimed = true
                 it.copy(
                     actions = it.actions.copy(
                         inFlight = InFlightAction(action, target),
@@ -248,33 +291,49 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
                     )
                 )
             }
+        }
+        if (!claimed) return
+        // Capture the destination now: the POST must go to the bridge the
+        // user was looking at, and its outcome must not be written into
+        // a different bridge's state if the URL changes mid-action.
+        val url = _state.value.bridgeUrl
+        val gen = urlGeneration
+        viewModelScope.launch {
             try {
-                val result = repo.postAction(_state.value.bridgeUrl, action, target)
-                _state.update {
-                    it.copy(
-                        actions = it.actions.copy(
-                            inFlight = null,
-                            results = it.actions.results + (section to ActionOutcome(result.message, result.ok)),
+                val result = repo.postAction(url, action, target)
+                if (gen == urlGeneration) {
+                    _state.update {
+                        it.copy(
+                            actions = it.actions.copy(
+                                inFlight = null,
+                                results = it.actions.results + (section to ActionOutcome(result.message, result.ok)),
+                            )
                         )
-                    )
+                    }
                 }
             } catch (e: CancellationException) {
-                _state.update { it.copy(actions = it.actions.copy(inFlight = null)) }
+                if (gen == urlGeneration) {
+                    _state.update { it.copy(actions = it.actions.copy(inFlight = null)) }
+                }
                 throw e
             } catch (e: Exception) {
-                _state.update {
-                    it.copy(
-                        actions = it.actions.copy(
-                            inFlight = null,
-                            results = it.actions.results + (section to ActionOutcome(friendlyError(e), false)),
+                if (gen == urlGeneration) {
+                    _state.update {
+                        it.copy(
+                            actions = it.actions.copy(
+                                inFlight = null,
+                                results = it.actions.results + (section to ActionOutcome(friendlyError(e), false)),
+                            )
                         )
-                    )
+                    }
                 }
             }
+            // On a URL change the state was already reset by setBridgeUrl
+            // (inFlight included) — nothing to clear or refresh here.
             // After a bridge restart this first attempt can fail while the
             // bridge is still down — silent with data on screen, and the
             // stats poll + pull-to-refresh recover it.
-            refreshActions()
+            if (gen == urlGeneration) refreshActions()
         }
     }
 
@@ -299,6 +358,7 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
         val clean = repo.normalizeBaseUrl(url)
         prefs.edit().putString("bridge_url", clean).apply()
         consecutiveFailures = 0
+        urlGeneration++
         // Full reset: the old bridge's snapshot, histories, and freshness must
         // never linger on screen as if they came from the new bridge.
         _state.update {

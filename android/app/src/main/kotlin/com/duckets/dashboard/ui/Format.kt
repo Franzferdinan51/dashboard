@@ -25,14 +25,19 @@ fun fmtGb(gb: Double?, digits: Int = 1): String =
     if (gb == null) "—" else String.format(Locale.US, "%.${digits}f GB", gb)
 
 fun fmtPct(v: Double, digits: Int = 0): String =
-    String.format(Locale.US, "%.${digits}f%%", v)
+    // A non-finite value reads as "absent", same rule as the repository's
+    // JSON parsing — never render "NaN%" on a gauge.
+    if (!v.isFinite()) "—" else String.format(Locale.US, "%.${digits}f%%", v)
 
 fun fmtCount(n: Long?): String =
     if (n == null) "—" else String.format(Locale.US, "%,d", n)
 
 fun fmtUsd(usd: String?): String {
     if (usd == null) return "—"
-    val v = usd.toDoubleOrNull() ?: return "$$usd"
+    // toDoubleOrNull accepts "NaN"/"Infinity" as valid numbers — treat
+    // them as unparseable and show the bridge's raw string instead of
+    // rendering "$NaN".
+    val v = usd.toDoubleOrNull()?.takeIf { it.isFinite() } ?: return "$$usd"
     return when {
         v == 0.0 -> "$0.00"
         v < 0 -> String.format(Locale.US, "-$%,.2f", -v)
