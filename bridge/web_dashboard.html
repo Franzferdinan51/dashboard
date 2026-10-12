@@ -6,105 +6,129 @@
 <title>Mac Studio — Dashboard</title>
 <style>
   :root{
-    --bg:#0a101f; --panel:#121c30; --panel2:#16233c; --line:#22345a;
-    --text:#e8eef7; --dim:#9db1cc; --faint:#62769a;
-    --blue:#4c9aff; --cyan:#38bdf8; --green:#3dd68c; --amber:#ffb84d; --red:#ff6b6b;
-    --chip:#1b2a47;
+    --bg:#060d18; --night:#0a1626;
+    --card1:#1d3a5f; --card2:#152a47;
+    --hero1:#2a4f83; --hero2:#13294b;
+    --alt1:#12294a; --alt2:#0b1a33;
+    --line:rgba(255,255,255,.16); --line-soft:rgba(143,176,216,.13);
+    --text:#f4f8ff; --dim:#9fb4d8; --faint:#6e86ad;
+    --blue:#2f7cf6; --cyan:#38bdf8; --green:#2fd48c; --amber:#f5a623; --red:#ff6b6b;
+    --chip:rgba(56,120,246,.14);
+    --track:#081426;
+    --shadow:0 10px 30px rgba(2,8,20,.45);
   }
   *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--text);
-    font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  body{margin:0;color:var(--text);
+    background:
+      radial-gradient(1100px 480px at 50% -180px, rgba(47,124,246,.20), rgba(47,124,246,0) 70%),
+      linear-gradient(180deg,#0c1e3a 0%,#0a1626 46%,#060d18 100%) fixed, #060d18;
+    font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    -webkit-font-smoothing:antialiased}
   header{display:flex;flex-wrap:wrap;gap:10px;align-items:center;
-    padding:13px 18px;border-bottom:1px solid var(--line);background:var(--panel)}
-  header h1{font-size:19px;margin:0;font-weight:700}
+    padding:14px 20px;position:sticky;top:0;z-index:40;
+    background:rgba(8,18,34,.82);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+    border-bottom:1px solid var(--line-soft)}
+  header h1{font-size:21px;margin:0;font-weight:800;letter-spacing:.01em}
   header .sub{color:var(--dim);font-size:12.5px}
   .spacer{flex:1}
   .chip{display:inline-flex;align-items:center;gap:6px;background:var(--chip);
-    border:1px solid var(--line);border-radius:999px;padding:3px 10px;
+    border:1px solid var(--line-soft);border-radius:999px;padding:4px 11px;
     font-size:12px;font-weight:600;color:var(--dim);white-space:nowrap}
   .chip .dot{width:8px;height:8px;border-radius:50%;background:var(--faint)}
-  .chip.ok{color:var(--green)} .chip.ok .dot{background:var(--green)}
-  .chip.warn{color:var(--amber)} .chip.warn .dot{background:var(--amber)}
-  .chip.bad{color:var(--red)} .chip.bad .dot{background:var(--red)}
-  .chip.blue{color:var(--blue)} .chip.blue .dot{background:var(--blue)}
-  button,select,input[type=text]{background:var(--chip);color:var(--text);
-    border:1px solid var(--line);border-radius:8px;padding:5px 10px;font-size:12.5px}
-  button{cursor:pointer}
+  .chip.ok{color:var(--green);background:rgba(47,212,140,.13);border-color:rgba(47,212,140,.35)} .chip.ok .dot{background:var(--green)}
+  .chip.warn{color:var(--amber);background:rgba(245,166,35,.13);border-color:rgba(245,166,35,.35)} .chip.warn .dot{background:var(--amber)}
+  .chip.bad{color:var(--red);background:rgba(255,107,107,.13);border-color:rgba(255,107,107,.35)} .chip.bad .dot{background:var(--red)}
+  .chip.blue{color:var(--cyan);background:rgba(56,189,248,.13);border-color:rgba(56,189,248,.35)} .chip.blue .dot{background:var(--cyan)}
+  button,select,input[type=text]{background:rgba(56,120,246,.12);color:var(--text);
+    border:1px solid var(--line-soft);border-radius:10px;padding:6px 11px;font-size:12.5px}
+  button{cursor:pointer;transition:background .15s,border-color .15s}
+  button:hover{background:rgba(56,120,246,.22)}
+  button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--cyan);outline-offset:1px}
   input[type=range]{accent-color:var(--blue)}
-  nav.tabs{display:flex;gap:6px;flex-wrap:wrap;padding:10px 18px 0}
-  nav.tabs button{border-radius:999px;padding:6px 14px;font-weight:600;color:var(--dim)}
-  nav.tabs button.on{background:var(--blue);color:#fff;border-color:var(--blue)}
+  nav.tabs{display:flex;gap:4px;flex-wrap:wrap;margin:16px 20px 0;padding:6px;
+    background:linear-gradient(165deg,var(--alt1),var(--alt2));
+    border:1px solid var(--line-soft);border-radius:18px;box-shadow:var(--shadow)}
+  nav.tabs button{border:none;background:transparent;border-radius:999px;
+    padding:7px 15px;font-weight:600;color:var(--dim)}
+  nav.tabs button:hover{background:rgba(56,120,246,.16);color:var(--text)}
+  nav.tabs button.on{background:linear-gradient(180deg,#3b8bff,#2f7cf6);color:#fff;
+    box-shadow:0 4px 14px rgba(47,124,246,.45)}
   nav.tabs .bdg{background:var(--red);color:#fff;border-radius:999px;font-size:10.5px;
     padding:0 6px;margin-left:6px;font-weight:700}
-  #banner{display:none;margin:12px 18px 0;background:#3a2430;border:1px solid #6e3546;
-    color:#ffb3c0;border-radius:10px;padding:10px 14px;font-size:13px;
+  #banner{display:none;margin:14px 20px 0;background:rgba(255,107,107,.12);border:1px solid rgba(255,107,107,.4);
+    color:#ffc2c2;border-radius:14px;padding:11px 15px;font-size:13px;
     align-items:center;gap:10px}
   .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));
-    gap:10px;padding:14px 18px 0}
-  .kpi{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
-  .kpi .k{font-size:11px;letter-spacing:.08em;color:var(--faint);text-transform:uppercase}
-  .kpi .v{font-size:21px;font-weight:700;margin-top:2px}
+    gap:10px;padding:16px 20px 0}
+  .kpi{background:linear-gradient(165deg,#1a3560,#122744);border:1px solid var(--line-soft);
+    border-radius:16px;padding:12px;box-shadow:0 6px 18px rgba(2,8,20,.35)}
+  .kpi .k{font-size:10.5px;letter-spacing:.11em;color:var(--faint);text-transform:uppercase;font-weight:700}
+  .kpi .v{font-size:20px;font-weight:800;margin-top:3px;letter-spacing:-.01em;white-space:nowrap}
   .kpi .s{font-size:11.5px;color:var(--dim)}
-  .kpi canvas{width:100%;height:22px;display:block;margin-top:5px}
-  main{display:grid;grid-template-columns:repeat(12,1fr);gap:12px;padding:14px 18px 20px}
-  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;
-    padding:14px 16px;min-width:0;transition:opacity .3s}
+  .kpi canvas{width:100%;height:22px;display:block;margin-top:6px}
+  main{display:grid;grid-template-columns:repeat(12,1fr);gap:16px;padding:16px 20px 22px}
+  .card{background:linear-gradient(165deg,var(--card1) 0%,var(--card2) 100%);
+    border:1px solid var(--line);border-radius:20px;
+    padding:18px 20px;min-width:0;transition:opacity .3s;
+    box-shadow:var(--shadow), inset 0 1px 0 rgba(255,255,255,.06)}
+  .card.hero{background:linear-gradient(165deg,var(--hero1) 0%,#1a3560 52%,var(--hero2) 100%);
+    border-radius:24px;box-shadow:0 14px 36px rgba(2,8,20,.5), inset 0 1px 0 rgba(255,255,255,.14)}
   .card.stale{opacity:.55}
-  .card h2{margin:0 0 4px;font-size:13px;letter-spacing:.07em;text-transform:uppercase;color:var(--dim)}
-  .card h2 .right{float:right;letter-spacing:0;text-transform:none}
+  .card h2{margin:0 0 6px;font-size:12px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--dim)}
+  .card h2 .right{float:right;letter-spacing:.02em;text-transform:none;color:var(--dim);font-weight:600}
   .s12{grid-column:span 12}.s8{grid-column:span 8}.s6{grid-column:span 6}.s4{grid-column:span 4}
   @media(max-width:1100px){.s8,.s6,.s4{grid-column:span 12}}
-  .rows{display:flex;flex-direction:column;gap:5px;margin-top:8px}
-  .row{display:flex;justify-content:space-between;gap:12px;font-size:13px}
+  .rows{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+  .row{display:flex;justify-content:space-between;gap:12px;font-size:13px;padding:2px 0}
   .row .k{color:var(--dim)} .row .v{font-weight:600;text-align:right;word-break:break-word}
-  .bar{height:9px;border-radius:6px;background:#0c1526;overflow:hidden;display:flex;margin:6px 0 2px}
+  .bar{height:9px;border-radius:6px;background:var(--track);overflow:hidden;display:flex;margin:7px 0 3px}
   .bar>i{display:block;height:100%}
   .bar.single>i{border-radius:6px}
-  table{width:100%;border-collapse:collapse;font-size:12.8px;margin-top:8px}
-  th{color:var(--faint);text-align:left;font-weight:600;padding:4px 6px;border-bottom:1px solid var(--line);white-space:nowrap}
-  td{padding:4px 6px;border-bottom:1px solid #182642}
+  table{width:100%;border-collapse:collapse;font-size:12.8px;margin-top:10px}
+  th{color:var(--faint);text-align:left;font-weight:600;padding:5px 6px;border-bottom:1px solid var(--line-soft);white-space:nowrap}
+  td{padding:5px 6px;border-bottom:1px solid rgba(143,176,216,.08)}
   td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
-  .procbar{height:5px;background:#0c1526;border-radius:3px;width:74px;display:inline-block;vertical-align:middle;margin-right:8px;overflow:hidden}
+  .procbar{height:5px;background:var(--track);border-radius:3px;width:74px;display:inline-block;vertical-align:middle;margin-right:8px;overflow:hidden}
   .procbar>i{display:block;height:100%;background:var(--blue)}
   canvas.chart{width:100%;display:block}
-  .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--dim);margin-top:4px}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--dim);margin-top:6px}
   .legend i{display:inline-block;width:14px;height:3px;border-radius:2px;vertical-align:middle;margin-right:5px}
-  .big{font-size:31px;font-weight:800}
-  .est3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:6px}
-  .est{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:12px}
-  .est .k{font-size:11px;letter-spacing:.08em;color:var(--faint);text-transform:uppercase}
-  .est .v{font-size:26px;font-weight:800;margin-top:2px}
-  .prog{height:10px;background:#0c1526;border-radius:6px;overflow:hidden;margin:8px 0 4px}
-  .prog>i{display:block;height:100%;background:linear-gradient(90deg,#2aa56f,var(--green))}
-  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
-  .tag{background:var(--chip);border:1px solid var(--line);border-radius:8px;
-    padding:3px 9px;font-size:12px;color:var(--dim)}
+  .big{font-size:34px;font-weight:800;letter-spacing:-.01em}
+  .est3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:8px}
+  .est{background:linear-gradient(165deg,#1a3560,#0f2342);border:1px solid var(--line-soft);border-radius:16px;padding:13px 14px}
+  .est .k{font-size:10.5px;letter-spacing:.11em;color:var(--faint);text-transform:uppercase;font-weight:700}
+  .est .v{font-size:27px;font-weight:800;margin-top:3px;letter-spacing:-.01em}
+  .prog{height:10px;background:var(--track);border-radius:6px;overflow:hidden;margin:9px 0 5px}
+  .prog>i{display:block;height:100%;background:linear-gradient(90deg,#27b978,var(--green))}
+  .chips{display:flex;flex-wrap:wrap;gap:7px;margin-top:9px}
+  .tag{background:rgba(8,20,38,.4);border:1px solid var(--line-soft);border-radius:999px;
+    padding:4px 11px;font-size:12px;color:var(--dim)}
   .tag b{color:var(--text)}
-  .evt{display:flex;gap:10px;padding:7px 0;border-bottom:1px solid #182642;font-size:12.8px;align-items:baseline}
+  .evt{display:flex;gap:10px;padding:8px 6px;border-bottom:1px solid rgba(143,176,216,.08);font-size:12.8px;align-items:baseline}
   .evt:last-child{border-bottom:none}
   .evt .t{color:var(--faint);white-space:nowrap;font-variant-numeric:tabular-nums}
   .evt .ty{font-weight:700;white-space:nowrap}
   .evt .d{color:var(--dim);word-break:break-word}
-  .evt.new{background:#16283f}
-  .note{font-size:12.5px;color:var(--amber);margin-top:8px}
+  .evt.new{background:rgba(56,189,248,.08);border-radius:8px}
+  .note{font-size:12.5px;color:var(--amber);margin-top:10px;line-height:1.5}
   .gauges{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;text-align:center}
   .gauge svg{width:118px;height:118px}
-  .gauge .gl{font-size:11px;letter-spacing:.08em;color:var(--dim);text-transform:uppercase;margin-top:2px}
+  .gauge .gl{font-size:10.5px;font-weight:700;letter-spacing:.11em;color:var(--dim);text-transform:uppercase;margin-top:3px}
   .gauge .gs{font-size:11.5px;color:var(--faint)}
-  .gauge canvas{width:100%;height:26px;display:block;margin-top:4px}
-  .heroStats{display:flex;gap:22px;flex-wrap:wrap;margin-top:8px}
-  .heroStats .hs .k{font-size:11px;letter-spacing:.08em;color:var(--faint);text-transform:uppercase}
-  .heroStats .hs .v{font-size:16px;font-weight:700}
-  .fbtn{border-radius:999px;padding:4px 12px;font-weight:600;color:var(--dim)}
-  .fbtn.on{background:var(--chip);color:var(--text);border-color:var(--blue)}
+  .gauge canvas{width:100%;height:26px;display:block;margin-top:5px}
+  .heroStats{display:flex;gap:26px;flex-wrap:wrap;margin-top:12px}
+  .heroStats .hs .k{font-size:10.5px;font-weight:700;letter-spacing:.11em;color:var(--faint);text-transform:uppercase}
+  .heroStats .hs .v{font-size:17px;font-weight:700;margin-top:2px}
+  .fbtn{border-radius:999px;padding:5px 13px;font-weight:600;color:var(--dim)}
+  .fbtn.on{background:rgba(56,120,246,.2);color:var(--text);border-color:var(--blue)}
   #toasts{position:fixed;top:14px;right:14px;z-index:50;display:flex;flex-direction:column;gap:8px}
-  .toast{background:var(--panel2);border:1px solid var(--blue);color:var(--text);
-    border-radius:10px;padding:10px 14px;font-size:13px;max-width:340px;
-    box-shadow:0 6px 24px rgba(0,0,0,.5)}
-  .cmd{display:flex;gap:8px;align-items:center;background:#0c1526;border:1px solid #182642;
-    border-radius:8px;padding:7px 10px;margin-top:7px;font-family:ui-monospace,Menlo,monospace;font-size:12.3px}
+  .toast{background:linear-gradient(165deg,#1d3a5f,#152a47);border:1px solid var(--blue);color:var(--text);
+    border-radius:14px;padding:11px 15px;font-size:13px;max-width:340px;
+    box-shadow:0 10px 28px rgba(0,0,0,.55)}
+  .cmd{display:flex;gap:8px;align-items:center;background:var(--track);border:1px solid var(--line-soft);
+    border-radius:12px;padding:8px 11px;margin-top:7px;font-family:ui-monospace,Menlo,monospace;font-size:12.3px}
   .cmd code{flex:1;word-break:break-all;color:var(--cyan)}
-  footer{padding:0 18px 18px;color:var(--faint);font-size:12px}
+  footer{padding:0 20px 20px;color:var(--faint);font-size:12px}
 </style>
 </head>
 <body>
@@ -152,7 +176,7 @@
 </section>
 
 <main id="grid">
-  <section class="card s8" data-views="ov">
+  <section class="card s8 hero" data-views="ov">
     <h2>Machine <span class="right"><span class="chip ok" id="heroChip"><span class="dot"></span>ONLINE</span></span></h2>
     <div style="font-size:20px;font-weight:700" id="heroName">Mac Studio</div>
     <div class="chips" id="heroChips"></div>
@@ -170,9 +194,9 @@
   <section class="card s4" data-views="ov">
     <h2>Live load</h2>
     <div class="gauges">
-      <div class="gauge"><svg viewBox="0 0 120 120"><path class="gTrack" fill="none" stroke="#22345a" stroke-width="10" stroke-linecap="round"/><path class="gVal" id="gCpu" fill="none" stroke="#4c9aff" stroke-width="10" stroke-linecap="round"/><text id="gCpuT" x="60" y="68" text-anchor="middle" fill="#e8eef7" font-size="19" font-weight="700">—</text></svg><div class="gl">CPU</div><div class="gs" id="gCpuS">—</div><canvas id="spCpu2"></canvas></div>
-      <div class="gauge"><svg viewBox="0 0 120 120"><path class="gTrack" fill="none" stroke="#22345a" stroke-width="10" stroke-linecap="round"/><path class="gVal" id="gMem" fill="none" stroke="#38bdf8" stroke-width="10" stroke-linecap="round"/><text id="gMemT" x="60" y="68" text-anchor="middle" fill="#e8eef7" font-size="19" font-weight="700">—</text></svg><div class="gl">Memory</div><div class="gs" id="gMemS">—</div><canvas id="spMem2"></canvas></div>
-      <div class="gauge"><svg viewBox="0 0 120 120"><path class="gTrack" fill="none" stroke="#22345a" stroke-width="10" stroke-linecap="round"/><path class="gVal" id="gGpu" fill="none" stroke="#3dd68c" stroke-width="10" stroke-linecap="round"/><text id="gGpuT" x="60" y="68" text-anchor="middle" fill="#e8eef7" font-size="19" font-weight="700">—</text></svg><div class="gl">GPU mem</div><div class="gs" id="gGpuS">—</div><canvas id="spGpu2"></canvas></div>
+      <div class="gauge"><svg viewBox="0 0 120 120"><path class="gTrack" fill="none" stroke="#1d3a5f" stroke-width="10" stroke-linecap="round"/><path class="gVal" id="gCpu" fill="none" stroke="#2f7cf6" stroke-width="10" stroke-linecap="round"/><text id="gCpuT" x="60" y="68" text-anchor="middle" fill="#f4f8ff" font-size="19" font-weight="700">—</text></svg><div class="gl">CPU</div><div class="gs" id="gCpuS">—</div><canvas id="spCpu2"></canvas></div>
+      <div class="gauge"><svg viewBox="0 0 120 120"><path class="gTrack" fill="none" stroke="#1d3a5f" stroke-width="10" stroke-linecap="round"/><path class="gVal" id="gMem" fill="none" stroke="#38bdf8" stroke-width="10" stroke-linecap="round"/><text id="gMemT" x="60" y="68" text-anchor="middle" fill="#f4f8ff" font-size="19" font-weight="700">—</text></svg><div class="gl">Memory</div><div class="gs" id="gMemS">—</div><canvas id="spMem2"></canvas></div>
+      <div class="gauge"><svg viewBox="0 0 120 120"><path class="gTrack" fill="none" stroke="#1d3a5f" stroke-width="10" stroke-linecap="round"/><path class="gVal" id="gGpu" fill="none" stroke="#2fd48c" stroke-width="10" stroke-linecap="round"/><text id="gGpuT" x="60" y="68" text-anchor="middle" fill="#f4f8ff" font-size="19" font-weight="700">—</text></svg><div class="gl">GPU mem</div><div class="gs" id="gGpuS">—</div><canvas id="spGpu2"></canvas></div>
     </div>
   </section>
 
@@ -260,7 +284,7 @@
     <canvas class="chart" id="chRate" height="80"></canvas>
   </section>
 
-  <section class="card s6" data-views="db">
+  <section class="card s6 hero" data-views="db">
     <h2>Earnings <span class="right">ledger · ground truth</span></h2>
     <div class="big" id="earnBig">—</div>
     <div class="prog"><i id="earnProg" style="width:0%"></i></div>
@@ -283,7 +307,7 @@
     <div id="jobList"></div>
   </section>
 
-  <section class="card s6" data-views="mining">
+  <section class="card s6 hero" data-views="mining">
     <h2>Batman-3 — verified mining earnings <span class="right">miner log × live network</span></h2>
     <div class="big" id="verBig">—</div>
     <div class="rows" id="verRows"></div>
@@ -303,7 +327,7 @@
     <div class="rows" id="mineLiveRows"></div>
   </section>
 
-  <section class="card s6" data-views="win">
+  <section class="card s6 hero" data-views="win">
     <h2>Windows PC — Batman-3 <span class="right"><span class="chip ok" id="winChip"><span class="dot"></span>—</span></span></h2>
     <div style="font-size:20px;font-weight:700" id="winName">Batman-3</div>
     <div class="chips" id="winChips"></div>
@@ -320,19 +344,19 @@
   <section class="card s6" data-views="win">
     <h2>Windows detail</h2>
     <h2 style="margin-top:2px">CPU</h2>
-    <div class="bar single" id="winCpuBar"><i style="width:0%;background:#4c9aff"></i></div>
+    <div class="bar single" id="winCpuBar"><i style="width:0%;background:#2f7cf6"></i></div>
     <div class="rows" id="winCpuRows"></div>
     <h2 style="margin-top:14px">Memory</h2>
     <div class="bar single" id="winMemBar"><i style="width:0%;background:#38bdf8"></i></div>
     <div class="rows" id="winMemRows"></div>
     <h2 style="margin-top:14px">GPU</h2>
-    <div class="bar single" id="winGpuBar"><i style="width:0%;background:#3dd68c"></i></div>
+    <div class="bar single" id="winGpuBar"><i style="width:0%;background:#2fd48c"></i></div>
     <div class="rows" id="winGpuRows"></div>
     <h2 style="margin-top:14px">Volumes</h2>
     <div id="winVolList"></div>
   </section>
 
-  <section class="card s6" data-views="earn">
+  <section class="card s6 hero" data-views="earn">
     <h2>Combined earnings <span class="right">Darkbloom + mining</span></h2>
     <div class="est3">
       <div class="est"><div class="k">Combined / day</div><div class="v" id="combDay">—</div></div>
@@ -446,7 +470,7 @@ function drawChart(cv, series, fixedMax, fmtFn) {
   if (!fixedMax) for (const s of series) for (const [t, v] of s.data)
     if (t >= t0 && v > max) max = v;
   if (!fixedMax) max = niceCeil(max * 1.1);
-  ctx.strokeStyle = "#1b2a47"; ctx.fillStyle = "#62769a"; ctx.font = "10px sans-serif"; ctx.lineWidth = 1;
+  ctx.strokeStyle = "rgba(143,176,216,.13)"; ctx.fillStyle = "#6e86ad"; ctx.font = "10px sans-serif"; ctx.lineWidth = 1;
   for (let i = 1; i <= 3; i++) { const y = h - 14 - (h - 22) * i / 3;
     ctx.beginPath(); ctx.moveTo(40, y); ctx.lineTo(w, y); ctx.stroke();
     ctx.fillText(fixedMax ? `${Math.round(max * i / 3)}` : fmt(max * i / 3), 2, y + 3); }
@@ -482,28 +506,28 @@ function drawBars(cv, buckets) {
   ctx.clearRect(0, 0, w, h);
   const max = niceCeil(Math.max(...buckets.map(b => b.v)) * 1.05);
   const bw = w / buckets.length;
-  ctx.font = "10px sans-serif"; ctx.fillStyle = "#62769a";
+  ctx.font = "10px sans-serif"; ctx.fillStyle = "#6e86ad";
   buckets.forEach((b, i) => {
     const bh = (h - 30) * b.v / max, x = i * bw + 6, y = h - 18 - bh;
-    ctx.fillStyle = "#3dd68c"; ctx.fillRect(x, y, bw - 12, bh);
-    ctx.fillStyle = "#9db1cc"; ctx.textAlign = "center";
+    ctx.fillStyle = "#2fd48c"; ctx.fillRect(x, y, bw - 12, bh);
+    ctx.fillStyle = "#9fb4d8"; ctx.textAlign = "center";
     ctx.fillText("$" + b.v.toFixed(3), x + (bw - 12) / 2, y - 4);
-    ctx.fillStyle = "#62769a"; ctx.fillText(b.label, x + (bw - 12) / 2, h - 4);
+    ctx.fillStyle = "#6e86ad"; ctx.fillText(b.label, x + (bw - 12) / 2, h - 4);
   });
   ctx.textAlign = "left";
 }
 function drawCharts() {
   drawChart($("chLoad"), [
-    { data: hist.cpu, color: "#4c9aff" }, { data: hist.mem, color: "#38bdf8" },
-    { data: hist.gpu, color: "#3dd68c" }], 100);
+    { data: hist.cpu, color: "#2f7cf6" }, { data: hist.mem, color: "#38bdf8" },
+    { data: hist.gpu, color: "#2fd48c" }], 100);
   drawChart($("chNet"), [
-    { data: hist.nin, color: "#38bdf8" }, { data: hist.nout, color: "#3dd68c" }], 0);
-  drawChart($("chBal"), [{ data: hist.bal, color: "#3dd68c" }], 0, v => "$" + v.toFixed(2));
-  drawSpark($("spCpu"), hist.cpu, "#4c9aff", 100); drawSpark($("spCpu2"), hist.cpu, "#4c9aff", 100);
+    { data: hist.nin, color: "#38bdf8" }, { data: hist.nout, color: "#2fd48c" }], 0);
+  drawChart($("chBal"), [{ data: hist.bal, color: "#2fd48c" }], 0, v => "$" + v.toFixed(2));
+  drawSpark($("spCpu"), hist.cpu, "#2f7cf6", 100); drawSpark($("spCpu2"), hist.cpu, "#2f7cf6", 100);
   drawSpark($("spMem"), hist.mem, "#38bdf8", 100); drawSpark($("spMem2"), hist.mem, "#38bdf8", 100);
-  drawSpark($("spGpu"), hist.gpu, "#3dd68c", 100); drawSpark($("spGpu2"), hist.gpu, "#3dd68c", 100);
-  drawSpark($("spNin"), hist.nin, "#38bdf8"); drawSpark($("spNout"), hist.nout, "#3dd68c");
-  drawSpark($("spBal"), hist.bal, "#3dd68c");
+  drawSpark($("spGpu"), hist.gpu, "#2fd48c", 100); drawSpark($("spGpu2"), hist.gpu, "#2fd48c", 100);
+  drawSpark($("spNin"), hist.nin, "#38bdf8"); drawSpark($("spNout"), hist.nout, "#2fd48c");
+  drawSpark($("spBal"), hist.bal, "#2fd48c");
 }
 
 /* ---------- gauges ---------- */
@@ -623,16 +647,16 @@ function render(ov) {
     row("CPU cores", esc(sys.cpu_cores)) + row("GPU cores", esc(sys.gpu_cores)) +
     row("Chip", esc(sys.chip || "—")) + row("macOS", esc(sys.macos_version || "—"));
   $("cpuBar").innerHTML =
-    `<i style="width:${cpu.user_pct || 0}%;background:#4c9aff"></i>` +
+    `<i style="width:${cpu.user_pct || 0}%;background:#2f7cf6"></i>` +
     `<i style="width:${cpu.sys_pct || 0}%;background:#38bdf8"></i>` +
-    `<i style="width:${cpu.idle_pct || 0}%;background:#22345a"></i>`;
+    `<i style="width:${cpu.idle_pct || 0}%;background:#1d3a5f"></i>`;
   $("cpuRows").innerHTML =
     row("User", pct(cpu.user_pct)) + row("System", pct(cpu.sys_pct)) +
     row("Idle", pct(cpu.idle_pct)) + row("Used", pct(cpu.used_pct));
   const mt = mem.total_bytes || 1;
   const seg = (b, c) => `<i style="width:${(b || 0) / mt * 100}%;background:${c}"></i>`;
-  $("memBar").innerHTML = seg(mem.active_bytes, "#38bdf8") + seg(mem.wired_bytes, "#4c9aff") +
-    seg(mem.compressed_bytes, "#3dd68c") + seg(mem.inactive_bytes, "#62769a");
+  $("memBar").innerHTML = seg(mem.active_bytes, "#38bdf8") + seg(mem.wired_bytes, "#2f7cf6") +
+    seg(mem.compressed_bytes, "#2fd48c") + seg(mem.inactive_bytes, "#6e86ad");
   const sw = mem.swap || {};
   $("memRows").innerHTML =
     row("Active", fmtBytes(mem.active_bytes)) + row("Wired", fmtBytes(mem.wired_bytes)) +
@@ -645,7 +669,7 @@ function render(ov) {
   $("volList").innerHTML = (sys.disks || []).map(d => `
     <div class="row"><span class="k">${esc(d.label)} <span style="color:var(--faint)">${esc(d.path)}</span></span>
     <span class="v">${fmtBytes(d.free_bytes)} free · ${Number(d.used_pct || 0).toFixed(0)}%</span></div>
-    <div class="bar single"><i style="width:${d.used_pct || 0}%;background:${(d.used_pct || 0) > 90 ? "#ff6b6b" : (d.used_pct || 0) > 80 ? "#ffb84d" : "#4c9aff"}"></i></div>`).join("");
+    <div class="bar single"><i style="width:${d.used_pct || 0}%;background:${(d.used_pct || 0) > 90 ? "#ff6b6b" : (d.used_pct || 0) > 80 ? "#f5a623" : "#2f7cf6"}"></i></div>`).join("");
 
   trackNet(net);
   renderProcesses(sys.top_processes || []);
@@ -837,10 +861,10 @@ function renderEarnings(earn, est, bal) {
   const totalMicro = Object.values(pm).reduce((a, s) => a + s.micro_usd, 0) + (earn.base_rewards_micro_usd_recent || 0);
   const pmRows = Object.entries(pm).sort((a, b) => b[1].micro_usd - a[1].micro_usd).map(([m, s]) => `
     <tr><td>${esc(m)}</td><td class="num">${fmtInt(s.jobs)}</td><td class="num">${fmtUsd(s.micro_usd / 1e6, 4)}</td>
-    <td style="width:34%"><div class="bar single" style="margin:0"><i style="width:${totalMicro ? s.micro_usd / totalMicro * 100 : 0}%;background:#3dd68c"></i></div></td></tr>`).join("");
+    <td style="width:34%"><div class="bar single" style="margin:0"><i style="width:${totalMicro ? s.micro_usd / totalMicro * 100 : 0}%;background:#2fd48c"></i></div></td></tr>`).join("");
   const baseRow = (earn.base_rewards_micro_usd_recent || 0) > 0 ? `
     <tr><td>Base reward (online floor)</td><td class="num">—</td><td class="num">${fmtUsd(earn.base_rewards_micro_usd_recent / 1e6, 4)}</td>
-    <td><div class="bar single" style="margin:0"><i style="width:${totalMicro ? earn.base_rewards_micro_usd_recent / totalMicro * 100 : 0}%;background:#62769a"></i></div></td></tr>` : "";
+    <td><div class="bar single" style="margin:0"><i style="width:${totalMicro ? earn.base_rewards_micro_usd_recent / totalMicro * 100 : 0}%;background:#6e86ad"></i></div></td></tr>` : "";
   $("perModel").innerHTML = (pmRows || baseRow)
     ? `<table><tr><th>Model</th><th class="num">Jobs</th><th class="num">Earned</th><th>Share</th></tr>${pmRows}${baseRow}</table>`
     : '<div class="rows"><div class="row"><span class="k">no jobs in window</span></div></div>';
@@ -865,13 +889,13 @@ function plotLedger(cv, pts, color, fmtY) {
   if (cv.width !== Math.round(w * dpr)) { cv.width = w * dpr; cv.height = h * dpr; }
   const ctx = cv.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, h);
-  if (pts.length < 2) { ctx.fillStyle = "#62769a"; ctx.font = "11px sans-serif";
+  if (pts.length < 2) { ctx.fillStyle = "#6e86ad"; ctx.font = "11px sans-serif";
     ctx.fillText("collecting…", 6, 16); return; }
   const t0 = pts[0][0], t1 = pts[pts.length - 1][0], span = Math.max(1, t1 - t0);
   let min = Math.min(...pts.map(p => p[1])), max = Math.max(...pts.map(p => p[1]));
   if (max - min < 1e-9) max = min + 1;
   const pad = (max - min) * 0.12; min -= pad; max += pad;
-  ctx.strokeStyle = "#1b2a47"; ctx.fillStyle = "#62769a"; ctx.font = "10px sans-serif"; ctx.lineWidth = 1;
+  ctx.strokeStyle = "rgba(143,176,216,.13)"; ctx.fillStyle = "#6e86ad"; ctx.font = "10px sans-serif"; ctx.lineWidth = 1;
   for (let i = 1; i <= 3; i++) { const y = h - 14 - (h - 22) * i / 3;
     ctx.beginPath(); ctx.moveTo(46, y); ctx.lineTo(w, y); ctx.stroke();
     ctx.fillText(fmtY(min + (max - min) * i / 3), 2, y + 3); }
@@ -883,7 +907,7 @@ function plotLedger(cv, pts, color, fmtY) {
 }
 function drawLedger(est) {
   const series = (est && est.series) || [];
-  plotLedger($("chEarn"), series.map(p => [p[0], p[1] / 1e6]), "#3dd68c", v => "$" + v.toFixed(2));
+  plotLedger($("chEarn"), series.map(p => [p[0], p[1] / 1e6]), "#2fd48c", v => "$" + v.toFixed(2));
   const rates = [];
   for (let i = 0; i < series.length; i++) {
     const [t, tot] = series[i];
@@ -891,7 +915,7 @@ function drawLedger(est) {
     const dt = t - series[j][0];
     if (dt >= 120) rates.push([t, (tot - series[j][1]) / 1e6 / dt * 86400]);
   }
-  plotLedger($("chRate"), rates, "#4c9aff", v => "$" + v.toFixed(1));
+  plotLedger($("chRate"), rates, "#2f7cf6", v => "$" + v.toFixed(1));
 }
 
 function renderJobs() {
@@ -976,14 +1000,14 @@ function plotMulti(cv, seriesArr, fmtY) {
   const ctx = cv.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, h);
   const all = seriesArr.flatMap(s => s.pts);
-  if (all.length < 2) { ctx.fillStyle = "#62769a"; ctx.font = "11px sans-serif";
+  if (all.length < 2) { ctx.fillStyle = "#6e86ad"; ctx.font = "11px sans-serif";
     ctx.fillText("collecting…", 6, 16); return; }
   const t0 = Math.min(...all.map(p => p[0])), t1 = Math.max(...all.map(p => p[0]));
   const span = Math.max(1, t1 - t0);
   let min = Math.min(...all.map(p => p[1])), max = Math.max(...all.map(p => p[1]));
   if (max - min < 1e-9) max = min + 1;
   const pad = (max - min) * 0.12; min -= pad; max += pad;
-  ctx.strokeStyle = "#1b2a47"; ctx.fillStyle = "#62769a"; ctx.font = "10px sans-serif"; ctx.lineWidth = 1;
+  ctx.strokeStyle = "rgba(143,176,216,.13)"; ctx.fillStyle = "#6e86ad"; ctx.font = "10px sans-serif"; ctx.lineWidth = 1;
   for (let i = 1; i <= 3; i++) { const y = h - 14 - (h - 22) * i / 3;
     ctx.beginPath(); ctx.moveTo(46, y); ctx.lineTo(w, y); ctx.stroke();
     ctx.fillText(fmtY(min + (max - min) * i / 3), 2, y + 3); }
@@ -1020,7 +1044,7 @@ function renderMining(mn) {
   }
   if (hist && (hist.points || []).length >= 2) {
     $("histRange").textContent = `${hist.span_hours}h of log · ${fmtInt(hist.sample_count)} samples`;
-    plotMulti($("chHist"), [{ pts: hist.points, color: "#ffb84d", width: 1.8 }],
+    plotMulti($("chHist"), [{ pts: hist.points, color: "#f5a623", width: 1.8 }],
       v => v.toFixed(0) + "");
     $("histRows").innerHTML =
       row("Coverage", `${fmtClock(hist.coverage_from)} → ${fmtClock(hist.coverage_to)}`) +
@@ -1091,7 +1115,7 @@ function renderWindows(w) {
   $("winVolList").innerHTML = (w.disks || []).map(d => `
     <div class="row"><span class="k">${esc(d.label)}</span>
     <span class="v">${fmtBytes(d.free_bytes)} free · ${Number(d.used_pct || 0).toFixed(0)}%</span></div>
-    <div class="bar single"><i style="width:${d.used_pct || 0}%;background:${(d.used_pct || 0) > 90 ? "#ff6b6b" : (d.used_pct || 0) > 80 ? "#ffb84d" : "#4c9aff"}"></i></div>`).join("");
+    <div class="bar single"><i style="width:${d.used_pct || 0}%;background:${(d.used_pct || 0) > 90 ? "#ff6b6b" : (d.used_pct || 0) > 80 ? "#f5a623" : "#2f7cf6"}"></i></div>`).join("");
   const m = w.miner || {};
   $("winMinerRows").innerHTML =
     row("SRBMiner", m.running ? "running" : "not running") +
@@ -1132,9 +1156,9 @@ function renderCombined() {
     const combPts = dbPts.map((p, i) => [p[0], p[1] + minePts[i][1]]);
     $("combGraphNote").textContent = `since ${new Date(t0 * 1000).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`;
     plotMulti($("chComb"), [
-      { pts: combPts, color: "#3dd68c", width: 2 },
+      { pts: combPts, color: "#2fd48c", width: 2 },
       { pts: dbPts, color: "#38bdf8" },
-      { pts: minePts, color: "#ffb84d", dashed: true },
+      { pts: minePts, color: "#f5a623", dashed: true },
     ], v => "$" + v.toFixed(2));
   }
 }
