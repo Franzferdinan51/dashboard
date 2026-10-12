@@ -53,7 +53,7 @@ DARKBLOOM_STATE = os.path.join(HOME, ".darkbloom", "daemon-state.json")
 DARKBLOOM_TOKEN = os.path.join(HOME, ".darkbloom", "auth_token")
 LMSTUDIO_KEY = os.path.join(HOME, ".config", "lmstudio", "api_key")
 LMSTUDIO_BASE = "http://127.0.0.1:1234"
-BRIDGE_VERSION = "1.7.0"
+BRIDGE_VERSION = "1.8.0"
 _STARTED_AT = time.time()
 
 # --------------------------------------------------------------------------
@@ -1197,6 +1197,104 @@ MINING_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                            "mining.json")
 
 
+# Kryptex's Pearl pool fee (pool.kryptex.com pool listing, Oct 2026).
+PEARL_POOL_FEE_PCT = 3.0
+
+
+def _pearl_network():
+    """Live Pearl network economics for the verified Batman-3 revenue
+    calc: network hashrate / block reward / block time from WhatToMine's
+    coin table, PRL/USD from CoinGecko. Kryptex's own $ figures are NOT
+    trusted — they multiply a noisy 30-minute pool-side hashrate (Pearl's
+    share difficulty targets ~1 share/min) by the network rate, and
+    their 24h worker stats are demonstrably broken (5.94 TH/s claimed
+    for a rig whose own log shows a 99.3 TH/s 6h average)."""
+    def build():
+        try:
+            wtm = http_get_json(
+                "https://whattomine.com/coins.json",
+                headers={"User-Agent": "Mozilla/5.0 dashboard-bridge"},
+                timeout=15)
+            prl = (wtm.get("coins") or {}).get("Pearl") or {}
+            nethash, reward, btime = (prl.get("nethash"),
+                                      prl.get("block_reward"),
+                                      prl.get("block_time"))
+            if not (nethash and reward and btime):
+                return None
+            price, source = None, None
+            try:
+                cg = http_get_json(
+                    "https://api.coingecko.com/api/v3/simple/price"
+                    "?ids=pearl-2&vs_currencies=usd", timeout=10)
+                price = (cg.get("pearl-2") or {}).get("usd")
+                source = "CoinGecko"
+            except Exception:
+                price = None
+            if not price:
+                try:
+                    cg = http_get_json(
+                        "https://api.coingecko.com/api/v3/simple/price"
+                        "?ids=bitcoin&vs_currencies=usd", timeout=10)
+                    btc = (cg.get("bitcoin") or {}).get("usd")
+                    if btc and prl.get("exchange_rate"):
+                        price = btc * prl["exchange_rate"]
+                        source = "WhatToMine BTC rate"
+                except Exception:
+                    pass
+            if not price:
+                return None
+            emission = 86400.0 / float(btime) * float(reward)
+            nethash_ths = float(nethash) / 1e12
+            return {
+                "price_usd": round(float(price), 4),
+                "price_source": source,
+                "nethash_ths": round(nethash_ths, 1),
+                "block_reward_prl": float(reward),
+                "block_time_sec": float(btime),
+                "emission_prl_day": round(emission, 1),
+                "usd_per_th_day": emission * float(price) / nethash_ths,
+                "pool_fee_pct": PEARL_POOL_FEE_PCT,
+                "fetched_at": time.time(),
+            }
+        except Exception:
+            return None
+    return cached("pearl-net", 300, build, swr=True)
+
+
+def _batman_verified(win, fleet):
+    """Verified Batman-3 Pearl revenue: the rig's LIVE hashrate from the
+    Windows probe (1h average preferred — the miner's own log, not a
+    pool-side guess) × live network emission share × live price, less
+    the Kryptex pool fee. Kryptex's claim rides along for comparison."""
+    net = _pearl_network()
+    miner = (win or {}).get("miner") or {}
+    basis = miner.get("avg_1h_ths") or miner.get("hashrate_ths")
+    if not net or not basis:
+        return None
+    gross_day = basis * net["usd_per_th_day"]
+    net_day = gross_day * (1 - PEARL_POOL_FEE_PCT / 100.0)
+    claim = None
+    for c in (fleet or {}).get("coins") or []:
+        for r in c.get("rigs") or []:
+            if r.get("name") == "Batman-3":
+                claim = r.get("per_day_usd")
+    return {
+        "hashrate_basis_ths": basis,
+        "hashrate_basis": "miner log 1h average" if miner.get("avg_1h_ths")
+                          else "miner log current",
+        "prl_per_day_gross": round(basis * net["emission_prl_day"]
+                                   / net["nethash_ths"], 3),
+        "usd_per_day_gross": round(gross_day, 2),
+        "usd_per_day_net": round(net_day, 2),
+        "usd_per_week_net": round(net_day * 7, 2),
+        "usd_per_month_net": round(net_day * 30, 2),
+        "kryptex_claim_per_day_usd": claim,
+        "delta_vs_claim_pct": (round((net_day / claim - 1) * 100, 1)
+                               if claim else None),
+        "network": net,
+    }
+
+
 def mining_stats():
     def build():
         fleet = None
@@ -1228,6 +1326,7 @@ def mining_stats():
         return {
             "fleet": fleet,
             "batman_live": batman_live,
+            "batman_verified": _batman_verified(win, fleet),
             "totals": ({"per_day_usd": total_day,
                         "per_week_usd": round(total_day * 7, 2),
                         "per_month_usd": total_month,
