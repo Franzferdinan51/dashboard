@@ -75,6 +75,11 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
         if (pollJob?.isActive == true) return
         pollJob = viewModelScope.launch {
             while (isActive) {
+                // Anchor the cadence to the START of the fetch: the old
+                // loop delayed a full interval AFTER each fetch finished,
+                // so the real period was fetch-time + interval (a 1.5s
+                // fetch turned a 5s setting into 6.5s updates — visible lag).
+                val cycleStart = System.currentTimeMillis()
                 refreshOnce()
                 if (pendingRefresh) {
                     // A manual refresh arrived mid-flight; honor it now
@@ -82,8 +87,10 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
                     pendingRefresh = false
                     continue
                 }
-                delay(_state.value.refreshSeconds
-                    .coerceIn(DashboardUiState.MIN_REFRESH_SECONDS, DashboardUiState.MAX_REFRESH_SECONDS) * 1000L)
+                val intervalMs = _state.value.refreshSeconds
+                    .coerceIn(DashboardUiState.MIN_REFRESH_SECONDS, DashboardUiState.MAX_REFRESH_SECONDS) * 1000L
+                val remaining = intervalMs - (System.currentTimeMillis() - cycleStart)
+                if (remaining > 0) delay(remaining)
             }
         }
     }

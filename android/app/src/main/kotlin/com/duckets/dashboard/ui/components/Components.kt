@@ -1,12 +1,11 @@
 package com.duckets.dashboard.ui.components
 
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -145,7 +144,9 @@ fun MeterBar(
     val safeFraction = if (fraction.isFinite()) fraction else 0f
     val animated by animateFloatAsState(
         targetValue = safeFraction.coerceIn(0f, 1f),
-        animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessLow),
+        // A low-stiffness spring takes >1s to settle and left the bars
+        // perpetually chasing the value — read as lag on every poll.
+        animationSpec = tween(durationMillis = 450, easing = FastOutSlowInEasing),
         label = "meter",
     )
     Box(modifier.fillMaxWidth().height(heightDp.dp).clip(Muse.ChipShape).background(trackColor)) {
@@ -176,7 +177,7 @@ fun ArcGauge(
     val safeFraction = if (fraction.isFinite()) fraction else 0f
     val animated by animateFloatAsState(
         targetValue = safeFraction.coerceIn(0f, 1f),
-        animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessLow),
+        animationSpec = tween(durationMillis = 550, easing = FastOutSlowInEasing),
         label = "gauge",
     )
     Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
@@ -217,6 +218,21 @@ fun ArcGauge(
     }
 }
 
+/** Smallest 1/2/2.5/5 × 10^n value >= v (for stable chart ceilings). */
+private fun niceCeil(v: Float): Float {
+    if (v <= 0f || !v.isFinite()) return 1f
+    val pow = Math.pow(10.0, kotlin.math.floor(kotlin.math.log10(v.toDouble()))).toFloat()
+    val n = v / pow
+    val step = when {
+        n <= 1f -> 1f
+        n <= 2f -> 2f
+        n <= 2.5f -> 2.5f
+        n <= 5f -> 5f
+        else -> 10f
+    }
+    return step * pow
+}
+
 @Composable
 fun Sparkline(
     data: List<Float>, color: Color, modifier: Modifier = Modifier,
@@ -237,7 +253,12 @@ fun Sparkline(
         val max = (maxValue ?: dataMax).coerceAtLeast(0.001f)
         // Pad the range so a steady low signal does not glue to the floor.
         val lo = if (maxValue != null) 0f else (dataMin * 0.7f).coerceAtLeast(0f)
-        val hi = if (maxValue != null) max else (dataMax * 1.15f).coerceAtLeast(lo + 0.001f)
+        // Auto-scaled charts used to re-derive the ceiling from the data
+        // max on EVERY sample, so the whole line rescaled and jumped on
+        // each poll. Quantize the ceiling to a 1/2/2.5/5×10^n step so it
+        // only moves when the signal genuinely changes range.
+        val hi = if (maxValue != null) max else niceCeil(
+            (dataMax * 1.15f).coerceAtLeast(lo + 0.001f))
         val padTop = 3.dp.toPx(); val padBottom = 3.dp.toPx()
         val usableH = size.height - padTop - padBottom
         val stepX = size.width / (clean.size - 1)
