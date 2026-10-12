@@ -1,0 +1,1376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mac Studio — Dashboard</title>
+<style>
+  :root{
+    --bg:#060d18; --night:#0a1626;
+    --card1:#1d3a5f; --card2:#152a47;
+    --hero1:#2a4f83; --hero2:#13294b;
+    --alt1:#12294a; --alt2:#0b1a33;
+    --line:rgba(255,255,255,.16); --line-soft:rgba(143,176,216,.13);
+    --text:#f4f8ff; --dim:#9fb4d8; --faint:#6e86ad;
+    --blue:#2f7cf6; --cyan:#38bdf8; --green:#2fd48c; --amber:#f5a623; --red:#ff6b6b;
+    --chip:rgba(56,120,246,.14);
+    --track:#081426;
+    --shadow:0 10px 30px rgba(2,8,20,.45);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;color:var(--text);
+    background:
+      radial-gradient(1100px 480px at 50% -180px, rgba(47,124,246,.20), rgba(47,124,246,0) 70%),
+      linear-gradient(180deg,#0c1e3a 0%,#0a1626 46%,#060d18 100%) fixed, #060d18;
+    font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    -webkit-font-smoothing:antialiased}
+  header{display:flex;flex-wrap:wrap;gap:10px;align-items:center;
+    padding:14px 20px;position:sticky;top:0;z-index:40;
+    background:rgba(8,18,34,.82);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+    border-bottom:1px solid var(--line-soft)}
+  header h1{font-size:21px;margin:0;font-weight:800;letter-spacing:.01em}
+  header .sub{color:var(--dim);font-size:12.5px}
+  .spacer{flex:1}
+  .chip{display:inline-flex;align-items:center;gap:6px;background:var(--chip);
+    border:1px solid var(--line-soft);border-radius:999px;padding:4px 11px;
+    font-size:12px;font-weight:600;color:var(--dim);white-space:nowrap}
+  .chip .dot{width:8px;height:8px;border-radius:50%;background:var(--faint)}
+  .chip.ok{color:var(--green);background:rgba(47,212,140,.13);border-color:rgba(47,212,140,.35)} .chip.ok .dot{background:var(--green)}
+  .chip.warn{color:var(--amber);background:rgba(245,166,35,.13);border-color:rgba(245,166,35,.35)} .chip.warn .dot{background:var(--amber)}
+  .chip.bad{color:var(--red);background:rgba(255,107,107,.13);border-color:rgba(255,107,107,.35)} .chip.bad .dot{background:var(--red)}
+  .chip.blue{color:var(--cyan);background:rgba(56,189,248,.13);border-color:rgba(56,189,248,.35)} .chip.blue .dot{background:var(--cyan)}
+  button,select,input[type=text]{background:rgba(56,120,246,.12);color:var(--text);
+    border:1px solid var(--line-soft);border-radius:10px;padding:6px 11px;font-size:12.5px}
+  button{cursor:pointer;transition:background .15s,border-color .15s}
+  button:hover{background:rgba(56,120,246,.22)}
+  button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--cyan);outline-offset:1px}
+  input[type=range]{accent-color:var(--blue)}
+  nav.tabs{display:flex;gap:4px;flex-wrap:wrap;margin:16px 20px 0;padding:6px;
+    background:linear-gradient(165deg,var(--alt1),var(--alt2));
+    border:1px solid var(--line-soft);border-radius:18px;box-shadow:var(--shadow)}
+  nav.tabs button{border:none;background:transparent;border-radius:999px;
+    padding:7px 15px;font-weight:600;color:var(--dim)}
+  nav.tabs button:hover{background:rgba(56,120,246,.16);color:var(--text)}
+  nav.tabs button.on{background:linear-gradient(180deg,#3b8bff,#2f7cf6);color:#fff;
+    box-shadow:0 4px 14px rgba(47,124,246,.45)}
+  nav.tabs .bdg{background:var(--red);color:#fff;border-radius:999px;font-size:10.5px;
+    padding:0 6px;margin-left:6px;font-weight:700}
+  #banner{display:none;margin:14px 20px 0;background:rgba(255,107,107,.12);border:1px solid rgba(255,107,107,.4);
+    color:#ffc2c2;border-radius:14px;padding:11px 15px;font-size:13px;
+    align-items:center;gap:10px}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));
+    gap:10px;padding:16px 20px 0}
+  .kpi{background:linear-gradient(165deg,#1a3560,#122744);border:1px solid var(--line-soft);
+    border-radius:16px;padding:12px;box-shadow:0 6px 18px rgba(2,8,20,.35)}
+  .kpi .k{font-size:10.5px;letter-spacing:.11em;color:var(--faint);text-transform:uppercase;font-weight:700}
+  .kpi .v{font-size:20px;font-weight:800;margin-top:3px;letter-spacing:-.01em;white-space:nowrap}
+  .kpi .s{font-size:11.5px;color:var(--dim)}
+  .kpi canvas{width:100%;height:22px;display:block;margin-top:6px}
+  main{display:grid;grid-template-columns:repeat(12,1fr);gap:16px;padding:16px 20px 22px}
+  .card{background:linear-gradient(165deg,var(--card1) 0%,var(--card2) 100%);
+    border:1px solid var(--line);border-radius:20px;
+    padding:18px 20px;min-width:0;transition:opacity .3s;
+    box-shadow:var(--shadow), inset 0 1px 0 rgba(255,255,255,.06)}
+  .card.hero{background:linear-gradient(165deg,var(--hero1) 0%,#1a3560 52%,var(--hero2) 100%);
+    border-radius:24px;box-shadow:0 14px 36px rgba(2,8,20,.5), inset 0 1px 0 rgba(255,255,255,.14)}
+  .card.stale{opacity:.55}
+  .card h2{margin:0 0 6px;font-size:12px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--dim)}
+  .card h2 .right{float:right;letter-spacing:.02em;text-transform:none;color:var(--dim);font-weight:600}
+  .s12{grid-column:span 12}.s8{grid-column:span 8}.s6{grid-column:span 6}.s4{grid-column:span 4}
+  @media(max-width:1100px){.s8,.s6,.s4{grid-column:span 12}}
+  .rows{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+  .row{display:flex;justify-content:space-between;gap:12px;font-size:13px;padding:2px 0}
+  .row .k{color:var(--dim)} .row .v{font-weight:600;text-align:right;word-break:break-word}
+  .bar{height:9px;border-radius:6px;background:var(--track);overflow:hidden;display:flex;margin:7px 0 3px}
+  .bar>i{display:block;height:100%}
+  .bar.single>i{border-radius:6px}
+  table{width:100%;border-collapse:collapse;font-size:12.8px;margin-top:10px}
+  th{color:var(--faint);text-align:left;font-weight:600;padding:5px 6px;border-bottom:1px solid var(--line-soft);white-space:nowrap}
+  td{padding:5px 6px;border-bottom:1px solid rgba(143,176,216,.08)}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+  .procbar{height:5px;background:var(--track);border-radius:3px;width:74px;display:inline-block;vertical-align:middle;margin-right:8px;overflow:hidden}
+  .procbar>i{display:block;height:100%;background:var(--blue)}
+  canvas.chart{width:100%;display:block}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--dim);margin-top:6px}
+  .legend i{display:inline-block;width:14px;height:3px;border-radius:2px;vertical-align:middle;margin-right:5px}
+  .big{font-size:34px;font-weight:800;letter-spacing:-.01em}
+  .est3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:8px}
+  .est{background:linear-gradient(165deg,#1a3560,#0f2342);border:1px solid var(--line-soft);border-radius:16px;padding:13px 14px}
+  .est .k{font-size:10.5px;letter-spacing:.11em;color:var(--faint);text-transform:uppercase;font-weight:700}
+  .est .v{font-size:27px;font-weight:800;margin-top:3px;letter-spacing:-.01em}
+  .prog{height:10px;background:var(--track);border-radius:6px;overflow:hidden;margin:9px 0 5px}
+  .prog>i{display:block;height:100%;background:linear-gradient(90deg,#27b978,var(--green))}
+  .chips{display:flex;flex-wrap:wrap;gap:7px;margin-top:9px}
+  .tag{background:rgba(8,20,38,.4);border:1px solid var(--line-soft);border-radius:999px;
+    padding:4px 11px;font-size:12px;color:var(--dim)}
+  .tag b{color:var(--text)}
+  .evt{display:flex;gap:10px;padding:8px 6px;border-bottom:1px solid rgba(143,176,216,.08);font-size:12.8px;align-items:baseline}
+  .evt:last-child{border-bottom:none}
+  .evt .t{color:var(--faint);white-space:nowrap;font-variant-numeric:tabular-nums}
+  .evt .ty{font-weight:700;white-space:nowrap}
+  .evt .d{color:var(--dim);word-break:break-word}
+  .evt.new{background:rgba(56,189,248,.08);border-radius:8px}
+  .note{font-size:12.5px;color:var(--amber);margin-top:10px;line-height:1.5}
+  .gauges{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;text-align:center}
+  .gauge svg{width:118px;height:118px}
+  .gauge .gl{font-size:10.5px;font-weight:700;letter-spacing:.11em;color:var(--dim);text-transform:uppercase;margin-top:3px}
+  .gauge .gs{font-size:11.5px;color:var(--faint)}
+  .gauge canvas{width:100%;height:26px;display:block;margin-top:5px}
+  .heroStats{display:flex;gap:26px;flex-wrap:wrap;margin-top:12px}
+  .heroStats .hs .k{font-size:10.5px;font-weight:700;letter-spacing:.11em;color:var(--faint);text-transform:uppercase}
+  .heroStats .hs .v{font-size:17px;font-weight:700;margin-top:2px}
+  .fbtn{border-radius:999px;padding:5px 13px;font-weight:600;color:var(--dim)}
+  .fbtn.on{background:rgba(56,120,246,.2);color:var(--text);border-color:var(--blue)}
+  #toasts{position:fixed;top:14px;right:14px;z-index:50;display:flex;flex-direction:column;gap:8px}
+  .toast{background:linear-gradient(165deg,#1d3a5f,#152a47);border:1px solid var(--blue);color:var(--text);
+    border-radius:14px;padding:11px 15px;font-size:13px;max-width:340px;
+    box-shadow:0 10px 28px rgba(0,0,0,.55)}
+  .cmd{display:flex;gap:8px;align-items:center;background:var(--track);border:1px solid var(--line-soft);
+    border-radius:12px;padding:8px 11px;margin-top:7px;font-family:ui-monospace,Menlo,monospace;font-size:12.3px}
+  .cmd code{flex:1;word-break:break-all;color:var(--cyan)}
+  footer{padding:0 20px 20px;color:var(--faint);font-size:12px}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1 id="title">Mac Studio</h1>
+    <div class="sub" id="subtitle">dashboard bridge</div>
+  </div>
+  <div class="spacer"></div>
+  <span class="chip" id="connChip"><span class="dot"></span><span id="connText">connecting</span></span>
+  <span class="chip" id="updChip">updated —</span>
+  <span class="chip" id="latChip">— ms</span>
+  <label class="chip">every <b id="intVal">2s</b>
+    <input type="range" id="intRange" min="1" max="30" step="1" value="2" style="width:90px">
+  </label>
+  <button id="refreshBtn">Refresh</button>
+  <button id="pauseBtn">Pause</button>
+</header>
+<div id="banner"><span style="flex:1">Can't reach the bridge — showing last known data.</span><button id="retryBtn">Retry</button></div>
+
+<nav class="tabs" id="tabbar">
+  <button data-view="ov" class="on">Overview</button>
+  <button data-view="sys">System</button>
+  <button data-view="db">Darkbloom</button>
+  <button data-view="mining">Mining</button>
+  <button data-view="earn">Earnings</button>
+  <button data-view="win">Windows</button>
+  <button data-view="events">Events<span class="bdg" id="evtBadge" style="display:none">0</span></button>
+  <button data-view="console">Console</button>
+</nav>
+
+<section class="kpis">
+  <div class="kpi"><div class="k">CPU</div><div class="v" id="kCpu">—</div><div class="s" id="kCpuS">—</div><canvas id="spCpu"></canvas></div>
+  <div class="kpi"><div class="k">Memory</div><div class="v" id="kMem">—</div><div class="s" id="kMemS">—</div><canvas id="spMem"></canvas></div>
+  <div class="kpi"><div class="k">GPU memory</div><div class="v" id="kGpu">—</div><div class="s" id="kGpuS">—</div><canvas id="spGpu"></canvas></div>
+  <div class="kpi"><div class="k">Net in</div><div class="v" id="kNetIn">—</div><div class="s" id="kNetInS">—</div><canvas id="spNin"></canvas></div>
+  <div class="kpi"><div class="k">Net out</div><div class="v" id="kNetOut">—</div><div class="s" id="kNetOutS">—</div><canvas id="spNout"></canvas></div>
+  <div class="kpi"><div class="k">Balance</div><div class="v" id="kBal">—</div><div class="s" id="kBalS">—</div><canvas id="spBal"></canvas></div>
+  <div class="kpi"><div class="k">Darkbloom est. / day</div><div class="v" id="kEst">—</div><div class="s" id="kEstS">—</div></div>
+  <div class="kpi"><div class="k">Mining / day</div><div class="v" id="kMine">—</div><div class="s" id="kMineS">—</div></div>
+  <div class="kpi"><div class="k">Paid jobs</div><div class="v" id="kJobs">—</div><div class="s" id="kJobsS">—</div></div>
+  <div class="kpi"><div class="k">Requests</div><div class="v" id="kReq">—</div><div class="s">session</div></div>
+  <div class="kpi"><div class="k">Trust</div><div class="v" id="kTrust" style="font-size:16px;padding-top:4px">—</div><div class="s" id="kTrustS">—</div></div>
+</section>
+
+<main id="grid">
+  <section class="card s8 hero" data-views="ov">
+    <h2>Machine <span class="right"><span class="chip ok" id="heroChip"><span class="dot"></span>ONLINE</span></span></h2>
+    <div style="font-size:20px;font-weight:700" id="heroName">Mac Studio</div>
+    <div class="chips" id="heroChips"></div>
+    <div class="heroStats">
+      <div class="hs"><div class="k">Uptime</div><div class="v" id="hUptime">—</div></div>
+      <div class="hs"><div class="k">Load</div><div class="v" id="hLoad">—</div></div>
+      <div class="hs"><div class="k">Thermal</div><div class="v" id="hThermal">—</div></div>
+      <div class="hs"><div class="k">Net in</div><div class="v" id="hNetIn">—</div></div>
+    </div>
+    <h2 style="margin-top:16px">LM Studio</h2>
+    <div class="chips" id="lmsChips"></div>
+    <div class="rows" id="lmsRows"></div>
+  </section>
+
+  <section class="card s4" data-views="ov">
+    <h2>Live load</h2>
+    <div class="gauges">
+      <div class="gauge"><svg viewBox="0 0 120 120"><path class="gTrack" fill="none" stroke="#1d3a5f" stroke-width="10" stroke-linecap="round"/><path class="gVal" id="gCpu" fill="none" stroke="#2f7cf6" stroke-width="10" stroke-linecap="round"/><text id="gCpuT" x="60" y="68" text-anchor="middle" fill="#f4f8ff" font-size="19" font-weight="700">—</text></svg><div class="gl">CPU</div><div class="gs" id="gCpuS">—</div><canvas id="spCpu2"></canvas></div>
+      <div class="gauge"><svg viewBox="0 0 120 120"><path class="gTrack" fill="none" stroke="#1d3a5f" stroke-width="10" stroke-linecap="round"/><path class="gVal" id="gMem" fill="none" stroke="#38bdf8" stroke-width="10" stroke-linecap="round"/><text id="gMemT" x="60" y="68" text-anchor="middle" fill="#f4f8ff" font-size="19" font-weight="700">—</text></svg><div class="gl">Memory</div><div class="gs" id="gMemS">—</div><canvas id="spMem2"></canvas></div>
+      <div class="gauge"><svg viewBox="0 0 120 120"><path class="gTrack" fill="none" stroke="#1d3a5f" stroke-width="10" stroke-linecap="round"/><path class="gVal" id="gGpu" fill="none" stroke="#2fd48c" stroke-width="10" stroke-linecap="round"/><text id="gGpuT" x="60" y="68" text-anchor="middle" fill="#f4f8ff" font-size="19" font-weight="700">—</text></svg><div class="gl">GPU mem</div><div class="gs" id="gGpuS">—</div><canvas id="spGpu2"></canvas></div>
+    </div>
+  </section>
+
+  <section class="card s8" data-views="ov sys">
+    <h2>History <span class="right">
+      <button class="fbtn winBtn on" data-win="300">5m</button>
+      <button class="fbtn winBtn" data-win="900">15m</button>
+      <button class="fbtn winBtn" data-win="1800">30m</button>
+    </span></h2>
+    <canvas class="chart" id="chLoad" height="140"></canvas>
+    <div class="legend"><span><i style="background:var(--blue)"></i>CPU %</span><span><i style="background:var(--cyan)"></i>Memory %</span><span><i style="background:var(--green)"></i>GPU mem %</span></div>
+    <canvas class="chart" id="chNet" height="100" style="margin-top:10px"></canvas>
+    <div class="legend"><span><i style="background:var(--cyan)"></i>Net in</span><span><i style="background:var(--green)"></i>Net out</span><span id="netNote"></span></div>
+    <canvas class="chart" id="chBal" height="90" style="margin-top:10px"></canvas>
+    <div class="legend"><span><i style="background:var(--green)"></i>Balance $</span><span id="balNote"></span></div>
+  </section>
+
+  <section class="card s4" data-views="ov db">
+    <h2>Darkbloom provider</h2>
+    <div class="chips" id="dbChips"></div>
+    <div class="rows" id="dbStripRows"></div>
+    <div class="note" id="dbTrustNote"></div>
+    <h2 style="margin-top:14px">Warm models</h2>
+    <div class="chips" id="dbWarmChips"></div>
+  </section>
+
+  <section class="card s4" data-views="sys">
+    <h2>System detail</h2>
+    <div class="rows" id="sysRows"></div>
+    <h2 style="margin-top:14px">CPU split</h2>
+    <div class="bar" id="cpuBar"></div>
+    <div class="rows" id="cpuRows"></div>
+    <h2 style="margin-top:14px">Memory</h2>
+    <div class="bar" id="memBar"></div>
+    <div class="rows" id="memRows"></div>
+    <h2 style="margin-top:14px">Volumes</h2>
+    <div id="volList"></div>
+  </section>
+
+  <section class="card s8" data-views="sys">
+    <h2>Top processes <span class="right"><input type="text" id="procFilter" placeholder="filter…" style="padding:3px 8px"></span></h2>
+    <div id="procList"></div>
+  </section>
+
+  <section class="card s4" data-views="db">
+    <h2>Provider detail</h2>
+    <div class="rows" id="dbRows"></div>
+    <h2 style="margin-top:14px">Session</h2>
+    <div class="rows" id="dbStats"></div>
+    <h2 style="margin-top:14px">GPU capacity</h2>
+    <div class="rows" id="dbCap"></div>
+  </section>
+
+  <section class="card s4" data-views="db">
+    <h2>Trust &amp; attestation</h2>
+    <div class="rows" id="trustRows"></div>
+    <h2 style="margin-top:14px">App Attest</h2>
+    <div class="rows" id="attestRows"></div>
+    <div class="note" id="trustNote"></div>
+  </section>
+
+  <section class="card s4" data-views="db">
+    <h2>Autopilot</h2>
+    <div class="rows" id="apRows"></div>
+    <h2 style="margin-top:14px">Bridge watch</h2>
+    <div class="rows" id="watchRows"></div>
+  </section>
+
+  <section class="card s12" data-views="db">
+    <h2>Models <span class="right" id="modelSummary">—</span></h2>
+    <div id="modelMatrix"></div>
+  </section>
+
+  <section class="card s6" data-views="ov db">
+    <h2>Estimated returns <span class="right">live · from the ledger</span></h2>
+    <div class="est3">
+      <div class="est"><div class="k">Per day</div><div class="v" id="estDay">—</div></div>
+      <div class="est"><div class="k">Per week</div><div class="v" id="estWeek">—</div></div>
+      <div class="est"><div class="k">Per month</div><div class="v" id="estMonth">—</div></div>
+    </div>
+    <div class="rows" id="estRows"></div>
+    <h2 style="margin-top:14px">Cumulative earnings <span class="right">bridge ledger</span></h2>
+    <canvas class="chart" id="chEarn" height="110"></canvas>
+    <h2 style="margin-top:12px">Realized rate <span class="right">$/day · trailing 1h</span></h2>
+    <canvas class="chart" id="chRate" height="80"></canvas>
+  </section>
+
+  <section class="card s6 hero" data-views="db">
+    <h2>Earnings <span class="right">ledger · ground truth</span></h2>
+    <div class="big" id="earnBig">—</div>
+    <div class="prog"><i id="earnProg" style="width:0%"></i></div>
+    <div class="rows" id="earnRows"></div>
+    <h2 style="margin-top:14px">Window analytics</h2>
+    <div class="rows" id="earnAnalytics"></div>
+  </section>
+
+  <section class="card s6" data-views="db">
+    <h2>Credits by hour <span class="right">history window</span></h2>
+    <canvas class="chart" id="chHours" height="130"></canvas>
+    <h2 style="margin-top:14px">Earnings by model</h2>
+    <div id="perModel"></div>
+  </section>
+
+  <section class="card s6" data-views="db">
+    <h2>Jobs <span class="right">
+      <select id="jobModelFilter"><option value="">all models</option></select>
+      <button id="csvBtn">CSV</button></span></h2>
+    <div id="jobList"></div>
+  </section>
+
+  <section class="card s6 hero" data-views="mining">
+    <h2>Batman-3 — verified mining earnings <span class="right">miner log × live network</span></h2>
+    <div class="big" id="verBig">—</div>
+    <div class="rows" id="verRows"></div>
+    <div class="note">Computed from the miner's own log (sustained average hashrate) × live Pearl network emission (WhatToMine) × live PRL price (CoinGecko), less Kryptex's 3% pool fee. Kryptex's dashboard figures are not an input — their 24h worker stats are broken and their $ amounts ride a noisy 30-minute pool-side hashrate.</div>
+  </section>
+
+  <section class="card s6" data-views="mining">
+    <h2>Hashrate history — the miner's log <span class="right" id="histRange">—</span></h2>
+    <canvas class="chart" id="chHist" height="180"></canvas>
+    <div class="legend"><span><i style="background:var(--amber)"></i>Batman-3 TH/s (SRBMiner log + bridge ledger)</span></div>
+    <div class="rows" id="histRows"></div>
+  </section>
+
+  <section class="card s6" data-views="mining">
+    <h2>Batman-3 — live miner <span class="right">via Windows probe</span></h2>
+    <div class="chips" id="mineLiveChips"></div>
+    <div class="rows" id="mineLiveRows"></div>
+  </section>
+
+  <section class="card s6 hero" data-views="win">
+    <h2>Windows PC — Batman-3 <span class="right"><span class="chip ok" id="winChip"><span class="dot"></span>—</span></span></h2>
+    <div style="font-size:20px;font-weight:700" id="winName">Batman-3</div>
+    <div class="chips" id="winChips"></div>
+    <div class="heroStats">
+      <div class="hs"><div class="k">Uptime</div><div class="v" id="wUptime">—</div></div>
+      <div class="hs"><div class="k">CPU load</div><div class="v" id="wCpuLoad">—</div></div>
+      <div class="hs"><div class="k">Net in</div><div class="v" id="wNetIn">—</div></div>
+      <div class="hs"><div class="k">Net out</div><div class="v" id="wNetOut">—</div></div>
+    </div>
+    <h2 style="margin-top:16px">Miner</h2>
+    <div class="rows" id="winMinerRows"></div>
+  </section>
+
+  <section class="card s6" data-views="win">
+    <h2>Windows detail</h2>
+    <h2 style="margin-top:2px">CPU</h2>
+    <div class="bar single" id="winCpuBar"><i style="width:0%;background:#2f7cf6"></i></div>
+    <div class="rows" id="winCpuRows"></div>
+    <h2 style="margin-top:14px">Memory</h2>
+    <div class="bar single" id="winMemBar"><i style="width:0%;background:#38bdf8"></i></div>
+    <div class="rows" id="winMemRows"></div>
+    <h2 style="margin-top:14px">GPU</h2>
+    <div class="bar single" id="winGpuBar"><i style="width:0%;background:#2fd48c"></i></div>
+    <div class="rows" id="winGpuRows"></div>
+    <h2 style="margin-top:14px">Volumes</h2>
+    <div id="winVolList"></div>
+  </section>
+
+  <section class="card s6 hero" data-views="earn">
+    <h2>Combined earnings <span class="right">Darkbloom + mining</span></h2>
+    <div class="est3">
+      <div class="est"><div class="k">Combined / day</div><div class="v" id="combDay">—</div></div>
+      <div class="est"><div class="k">Combined / week</div><div class="v" id="combWeek">—</div></div>
+      <div class="est"><div class="k">Combined / month</div><div class="v" id="combMonth">—</div></div>
+    </div>
+    <div class="rows" id="combRows"></div>
+    <div class="note" id="combNote"></div>
+  </section>
+
+  <section class="card s6" data-views="earn">
+    <h2>Combined tracked earnings <span class="right" id="combGraphNote">since tracking began</span></h2>
+    <canvas class="chart" id="chComb" height="180"></canvas>
+    <div class="legend">
+      <span><i style="background:var(--green)"></i>Combined</span>
+      <span><i style="background:var(--cyan)"></i>Darkbloom (ledger)</span>
+      <span><i style="background:var(--amber)"></i>Mining — Batman-3 (modeled at verified rate)</span>
+    </div>
+  </section>
+
+  <section class="card s8" data-views="events">
+    <h2>Decisions — state changes <span class="right">bridge log</span></h2>
+    <div class="chips" id="evtFilters">
+      <button class="fbtn evtF on" data-f="">all</button>
+      <button class="fbtn evtF" data-f="darkbloom">darkbloom</button>
+      <button class="fbtn evtF" data-f="earning">earning</button>
+      <button class="fbtn evtF" data-f="trust">trust</button>
+      <button class="fbtn evtF" data-f="lmstudio">lm studio</button>
+      <button class="fbtn evtF" data-f="bridge">bridge</button>
+    </div>
+    <div id="decList"></div>
+  </section>
+
+  <section class="card s4" data-views="events console">
+    <h2>Endpoint latency <span class="right">probed</span></h2>
+    <div class="rows" id="probeRows"></div>
+    <h2 style="margin-top:14px">This page</h2>
+    <div class="rows" id="pageRows"></div>
+  </section>
+
+  <section class="card s8" data-views="console">
+    <h2>Commands <span class="right">run on the Mac</span></h2>
+    <div id="cmdList"></div>
+    <h2 style="margin-top:16px">Export</h2>
+    <div class="chips">
+      <button id="snapBtn">Download snapshot (JSON)</button>
+      <button id="csvBtn2">Download jobs (CSV)</button>
+    </div>
+    <h2 style="margin-top:16px">About</h2>
+    <div class="rows" id="aboutRows"></div>
+    <p style="color:var(--dim);font-size:12.8px">The detailed web companion to the phone/tablet app — same bridge, same data, plus the analytics layer. Read-only; nothing here can change the Mac. Shortcuts: 1–8 switch views, R refreshes, P pauses.</p>
+  </section>
+</main>
+
+<div id="toasts"></div>
+<footer>Served by the dashboard bridge on this Mac · /api/overview · /api/system · /api/darkbloom · /api/lmstudio · /api/windows · /api/mining · /api/decisions · /mcp</footer>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const num = v => { const n = Number(v); return Number.isFinite(n) ? n : null; };
+const fmtBytes = b => { if (b == null) return "—"; const u = ["B","KB","MB","GB","TB"]; let i = 0; let v = b;
+  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; } return `${v.toFixed(v >= 100 ? 0 : 1)} ${u[i]}`; };
+const fmtRate = b => b == null ? "—" : fmtBytes(b) + "/s";
+const fmtGb = v => v == null ? "—" : `${Number(v).toFixed(1)} GB`;
+const fmtUsd = (v, dp = 3) => { const n = num(v); return n == null ? "—" : "$" + n.toFixed(dp); };
+const fmtInt = v => v == null ? "—" : Math.round(v).toLocaleString("en-US");
+function fmtDur(s) { if (s == null || !Number.isFinite(s)) return "—"; s = Math.max(0, Math.floor(s));
+  const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
+  if (d) return `${d}d ${h}h`; if (h) return `${h}h ${m}m`; if (m) return `${m}m`; return `${s}s`; }
+function fmtAgo(ts) { if (!ts) return "—"; const s = Math.max(0, Math.floor(Date.now() / 1000 - ts));
+  if (s < 5) return "just now"; if (s < 60) return `${s}s ago`; if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`; return `${Math.floor(s / 86400)}d ago`; }
+const fmtClock = ts => ts ? new Date(ts * 1000).toLocaleTimeString("en-US", {hour: "numeric", minute: "2-digit"}) : "—";
+function niceCeil(v) { if (!(v > 0)) return 1; const p = Math.pow(10, Math.floor(Math.log10(v))); const n = v / p;
+  return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * p; }
+const row = (k, v) => `<div class="row"><span class="k">${esc(k)}</span><span class="v">${v}</span></div>`;
+const pct = v => v == null ? "—" : `${Number(v).toFixed(0)}%`;
+const chip = (txt, cls) => `<span class="chip ${cls}"><span class="dot"></span>${esc(txt)}</span>`;
+const isoTs = s => { const t = Date.parse(s || ""); return Number.isFinite(t) ? t / 1000 : null; };
+
+/* ---------- history (persisted; charts survive reloads) ---------- */
+const HKEY = "dashHistV2", MAXH = 1200;
+let hist = { cpu: [], mem: [], gpu: [], nin: [], nout: [], bal: [] };
+try { const saved = JSON.parse(localStorage.getItem(HKEY) || "null");
+  if (saved) for (const k of Object.keys(hist))
+    if (Array.isArray(saved[k]))
+      hist[k] = saved[k].filter(p => Array.isArray(p) && p.length >= 2);
+} catch (e) {}
+let histSaveAt = 0;
+function pushHist(key, v) {
+  if (v == null || !Number.isFinite(v)) return;
+  const a = hist[key], now = Date.now() / 1000;
+  if (a.length && now - a[a.length - 1][0] < 1.5) a[a.length - 1] = [now, v];
+  else a.push([now, v]);
+  if (a.length > MAXH) a.splice(0, a.length - MAXH);
+  if (now - histSaveAt > 10) { histSaveAt = now;
+    try { localStorage.setItem(HKEY, JSON.stringify(hist)); } catch (e) {} }
+}
+
+/* ---------- charts ---------- */
+let winSec = 300;
+function drawChart(cv, series, fixedMax, fmtFn) {
+  const fmt = fmtFn || (v => fmtBytes(v));
+  const dpr = window.devicePixelRatio || 1;
+  const w = cv.clientWidth, h = cv.clientHeight;
+  if (!w) return;
+  if (cv.width !== Math.round(w * dpr)) { cv.width = w * dpr; cv.height = h * dpr; }
+  const ctx = cv.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  const now = Date.now() / 1000, t0 = now - winSec;
+  let max = fixedMax || 0;
+  if (!fixedMax) for (const s of series) for (const [t, v] of s.data)
+    if (t >= t0 && v > max) max = v;
+  if (!fixedMax) max = niceCeil(max * 1.1);
+  ctx.strokeStyle = "rgba(143,176,216,.13)"; ctx.fillStyle = "#6e86ad"; ctx.font = "10px sans-serif"; ctx.lineWidth = 1;
+  for (let i = 1; i <= 3; i++) { const y = h - 14 - (h - 22) * i / 3;
+    ctx.beginPath(); ctx.moveTo(40, y); ctx.lineTo(w, y); ctx.stroke();
+    ctx.fillText(fixedMax ? `${Math.round(max * i / 3)}` : fmt(max * i / 3), 2, y + 3); }
+  for (const s of series) {
+    ctx.strokeStyle = s.color; ctx.lineWidth = 1.6; ctx.beginPath();
+    let started = false;
+    for (const [t, v] of s.data) { if (t < t0) continue;
+      const x = 40 + (t - t0) / winSec * (w - 42), y = h - 14 - (h - 22) * Math.min(1, v / max);
+      started ? ctx.lineTo(x, y) : ctx.moveTo(x, y); started = true; }
+    ctx.stroke();
+  }
+}
+function drawSpark(cv, data, color, maxV) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = cv.clientWidth, h = cv.clientHeight;
+  if (!w || data.length < 2) return;
+  if (cv.width !== Math.round(w * dpr)) { cv.width = w * dpr; cv.height = h * dpr; }
+  const ctx = cv.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  const vals = data.slice(-90).map(p => p[1]);
+  const max = maxV || niceCeil(Math.max(...vals) * 1.1);
+  ctx.strokeStyle = color; ctx.lineWidth = 1.4; ctx.beginPath();
+  vals.forEach((v, i) => { const x = i / (vals.length - 1) * w, y = h - 2 - (h - 5) * Math.min(1, v / max);
+    i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+  ctx.stroke();
+}
+function drawBars(cv, buckets) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = cv.clientWidth, h = cv.clientHeight;
+  if (!w || !buckets.length) return;
+  if (cv.width !== Math.round(w * dpr)) { cv.width = w * dpr; cv.height = h * dpr; }
+  const ctx = cv.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  const max = niceCeil(Math.max(...buckets.map(b => b.v)) * 1.05);
+  const bw = w / buckets.length;
+  ctx.font = "10px sans-serif"; ctx.fillStyle = "#6e86ad";
+  buckets.forEach((b, i) => {
+    const bh = (h - 30) * b.v / max, x = i * bw + 6, y = h - 18 - bh;
+    ctx.fillStyle = "#2fd48c"; ctx.fillRect(x, y, bw - 12, bh);
+    ctx.fillStyle = "#9fb4d8"; ctx.textAlign = "center";
+    ctx.fillText("$" + b.v.toFixed(3), x + (bw - 12) / 2, y - 4);
+    ctx.fillStyle = "#6e86ad"; ctx.fillText(b.label, x + (bw - 12) / 2, h - 4);
+  });
+  ctx.textAlign = "left";
+}
+function drawCharts() {
+  drawChart($("chLoad"), [
+    { data: hist.cpu, color: "#2f7cf6" }, { data: hist.mem, color: "#38bdf8" },
+    { data: hist.gpu, color: "#2fd48c" }], 100);
+  drawChart($("chNet"), [
+    { data: hist.nin, color: "#38bdf8" }, { data: hist.nout, color: "#2fd48c" }], 0);
+  drawChart($("chBal"), [{ data: hist.bal, color: "#2fd48c" }], 0, v => "$" + v.toFixed(2));
+  drawSpark($("spCpu"), hist.cpu, "#2f7cf6", 100); drawSpark($("spCpu2"), hist.cpu, "#2f7cf6", 100);
+  drawSpark($("spMem"), hist.mem, "#38bdf8", 100); drawSpark($("spMem2"), hist.mem, "#38bdf8", 100);
+  drawSpark($("spGpu"), hist.gpu, "#2fd48c", 100); drawSpark($("spGpu2"), hist.gpu, "#2fd48c", 100);
+  drawSpark($("spNin"), hist.nin, "#38bdf8"); drawSpark($("spNout"), hist.nout, "#2fd48c");
+  drawSpark($("spBal"), hist.bal, "#2fd48c");
+}
+
+/* ---------- gauges ---------- */
+function arcD(cx, cy, r, fromDeg, toDeg) {
+  const p = a => [cx + r * Math.cos(a * Math.PI / 180), cy + r * Math.sin(a * Math.PI / 180)];
+  const [x1, y1] = p(fromDeg), [x2, y2] = p(toDeg);
+  return `M ${x1.toFixed(1)} ${y1.toFixed(1)} A ${r} ${r} 0 ${toDeg - fromDeg > 180 ? 1 : 0} 1 ${x2.toFixed(1)} ${y2.toFixed(1)}`;
+}
+const ARC_LEN = 2 * Math.PI * 50 * 240 / 360;
+function initGauges() {
+  document.querySelectorAll(".gTrack").forEach(p => p.setAttribute("d", arcD(60, 60, 50, 150, 390)));
+  ["gCpu", "gMem", "gGpu"].forEach(id => { const p = $(id);
+    p.setAttribute("d", arcD(60, 60, 50, 150, 390));
+    p.setAttribute("stroke-dasharray", `0 ${ARC_LEN}`); });
+}
+function setGauge(id, txtId, subId, frac, text, sub) {
+  const p = $(id); if (!p) return;
+  const f = Math.max(0, Math.min(1, frac || 0));
+  p.setAttribute("stroke-dasharray", `${(f * ARC_LEN).toFixed(1)} ${ARC_LEN}`);
+  $(txtId).textContent = text; $(subId).textContent = sub;
+}
+</script>
+
+<script>
+"use strict";
+let paused = false, intervalMs = 2000, lastOkAt = 0, lastOverview = null;
+let pageStart = Date.now(), pollCount = 0, failCount = 0, latSum = 0;
+let openBalance = null, openJobs = null;
+let lastHist = [];   // earnings history window (for jobs table / analytics)
+let lastEarn = null; // last renderEarnings() args, for chart redraws on tab switch
+
+function render(ov) {
+  lastOverview = ov;
+  const sys = ov.system || {}, db = ov.darkbloom || {}, lms = ov.lmstudio || {};
+  const earn = db.earnings || {}, est = earn.estimates || null;
+  const mem = sys.memory || {}, cpu = sys.cpu || {}, net = sys.network || {};
+  const cap = db.capacity || {}, gpuPct = cap.total_memory_gb && cap.gpu_active_gb != null
+    ? cap.gpu_active_gb / cap.total_memory_gb * 100 : null;
+  const bal = num(earn.balance_usd);
+  if (openBalance == null && bal != null) { openBalance = bal; openJobs = earn.jobs_in_history; }
+
+  $("title").textContent = sys.computer_name || "Mac Studio";
+  $("subtitle").textContent =
+    `${sys.chip || ""} · ${sys.model || ""} · macOS ${sys.macos_version || ""} · bridge v${(ov.bridge || {}).version || "?"}`;
+
+  // hero
+  $("heroName").textContent = sys.computer_name || "Mac Studio";
+  $("heroChips").innerHTML =
+    `<span class="tag"><b>${esc(sys.cpu_cores ?? "—")}</b>&nbsp;CPU cores</span>` +
+    `<span class="tag"><b>${esc(sys.gpu_cores ?? "—")}</b>&nbsp;GPU cores</span>` +
+    `<span class="tag">${esc(sys.model || "")}</span>` +
+    `<span class="tag">${esc(sys.chip || "")}</span>`;
+  $("hUptime").textContent = fmtDur(sys.uptime_seconds);
+  $("hLoad").textContent = (sys.load_avg || []).map(v => Number(v).toFixed(2)).join(" ");
+  $("hThermal").textContent = (sys.thermal || {}).state || "—";
+  $("hNetIn").textContent = fmtRate(net.rate_in_bps);
+  const hc = $("heroChip");
+  const sysOk = !!(sys.computer_name || sys.uptime_seconds != null || sys.cpu_cores != null);
+  hc.className = "chip " + (sysOk ? "ok" : "bad");
+  hc.innerHTML = `<span class="dot"></span>${sysOk ? "ONLINE" : "NO DATA"}`;
+
+  // KPIs
+  $("kCpu").textContent = pct(cpu.used_pct);
+  $("kCpuS").textContent = `load ${(sys.load_avg || []).map(v => Number(v).toFixed(2)).join(" ")}`;
+  $("kMem").textContent = pct(mem.used_pct);
+  $("kMemS").textContent = `${fmtBytes(mem.used_bytes)} of ${fmtBytes(mem.total_bytes)}`;
+  $("kGpu").textContent = pct(gpuPct);
+  $("kGpuS").textContent = `${fmtGb(cap.gpu_active_gb)} active`;
+  $("kNetIn").textContent = fmtRate(net.rate_in_bps); $("kNetInS").textContent = `${fmtBytes(net.bytes_in)} total`;
+  $("kNetOut").textContent = fmtRate(net.rate_out_bps); $("kNetOutS").textContent = `${fmtBytes(net.bytes_out)} total`;
+  $("kBal").textContent = fmtUsd(earn.balance_usd);
+  $("kBalS").textContent = bal != null && openBalance != null && bal !== openBalance
+    ? `${fmtUsd(earn.withdrawable_usd)} wd · +${fmtUsd(bal - openBalance, 4)} here` : `${fmtUsd(earn.withdrawable_usd)} withdrawable`;
+  $("kEst").textContent = est ? fmtUsd(est.per_day_usd, 2) : "—";
+  $("kEstS").textContent = est ? `${fmtUsd(est.per_week_usd, 2)}/wk · ${fmtUsd(est.per_month_usd, 2)}/mo` : "not enough data";
+  $("kJobs").textContent = fmtInt(earn.jobs_in_history);
+  $("kJobsS").textContent = db.last_credit_at ? `last credit ${fmtAgo(db.last_credit_at)}` : "in window";
+  $("kReq").textContent = fmtInt((db.stats || {}).requests_served);
+  $("kTrust").textContent = (db.trust || {}).level || "—";
+  $("kTrustS").textContent = (db.trust || {}).status || "";
+
+  // gauges
+  setGauge("gCpu", "gCpuT", "gCpuS", (cpu.used_pct || 0) / 100, pct(cpu.used_pct), `${sys.cpu_cores ?? ""} cores`);
+  setGauge("gMem", "gMemT", "gMemS", (mem.used_pct || 0) / 100, pct(mem.used_pct), fmtBytes(mem.used_bytes));
+  setGauge("gGpu", "gGpuT", "gGpuS", (gpuPct || 0) / 100, pct(gpuPct), fmtGb(cap.gpu_active_gb));
+
+  // darkbloom strip (overview)
+  $("dbChips").innerHTML =
+    chip(db.running ? "RUNNING" : "STOPPED", db.running ? "ok" : "bad") +
+    (db.running ? chip(db.earning ? "EARNING" : "NOT EARNING YET", db.earning ? "ok" : "warn") : "") +
+    chip("trust: " + ((db.trust || {}).level || "—"), (db.trust || {}).level === "hardware" ? "ok" : "warn");
+  $("dbStripRows").innerHTML =
+    row("Balance", fmtUsd(earn.balance_usd, 4)) +
+    row("Paid jobs (window)", fmtInt(earn.jobs_in_history)) +
+    row("Requests (session)", fmtInt((db.stats || {}).requests_served)) +
+    row("Tokens (session)", fmtInt((db.stats || {}).tokens_generated)) +
+    row("Last credit", db.last_credit_at ? fmtAgo(db.last_credit_at) : "—") +
+    row("Currently serving", esc(db.current_model || "—"));
+  $("dbTrustNote").textContent = db.verification_pending
+    ? "Trust: self-signed — verification pending on Darkbloom's side; paid jobs still land in the ledger." : "";
+  $("dbWarmChips").innerHTML = (db.warm_models || []).map(m =>
+    `<span class="tag">${m === db.current_model ? "● " : ""}${esc(m)}</span>`).join("") ||
+    '<span class="tag">none warm</span>';
+
+  // LM Studio — the chip and tags are about LOADED models only. (The old
+  // chip keyed off `reachable` but said LOADED, and the tags listed the
+  // whole library — together they claimed models were loaded when the
+  // "Loaded models" row right below said 0.)
+  const lmLoaded = (lms.models || []).filter(m => typeof m === "string" || m.state === "loaded");
+  $("lmsChips").innerHTML =
+    (!lms.reachable ? chip("UNREACHABLE", "bad")
+      : lmLoaded.length ? chip(`${lmLoaded.length} LOADED`, "ok")
+      : chip("NONE LOADED", "warn")) +
+    lmLoaded.map(m => `<span class="tag">${esc(typeof m === "string" ? m : (m.id || m.name || "?"))}</span>`).join("");
+  $("lmsRows").innerHTML =
+    row("Reachable", lms.reachable ? "yes" : "no") +
+    row("Loaded models", esc(lms.loaded_count ?? 0)) +
+    (lms.reachable ? "" : row("Error", esc(String(lms.error || "").slice(0, 90))));
+
+  // system detail
+  const th = sys.thermal || {};
+  $("sysRows").innerHTML =
+    row("Uptime", esc(fmtDur(sys.uptime_seconds))) +
+    row("Load average", esc((sys.load_avg || []).map(v => Number(v).toFixed(2)).join(" · "))) +
+    row("Thermal", `${esc(th.state || "—")}${th.cpu_speed_limit_pct != null ? ` · CPU limit ${esc(th.cpu_speed_limit_pct)}%` : ""}`) +
+    row("CPU cores", esc(sys.cpu_cores)) + row("GPU cores", esc(sys.gpu_cores)) +
+    row("Chip", esc(sys.chip || "—")) + row("macOS", esc(sys.macos_version || "—"));
+  $("cpuBar").innerHTML =
+    `<i style="width:${cpu.user_pct || 0}%;background:#2f7cf6"></i>` +
+    `<i style="width:${cpu.sys_pct || 0}%;background:#38bdf8"></i>` +
+    `<i style="width:${cpu.idle_pct || 0}%;background:#1d3a5f"></i>`;
+  $("cpuRows").innerHTML =
+    row("User", pct(cpu.user_pct)) + row("System", pct(cpu.sys_pct)) +
+    row("Idle", pct(cpu.idle_pct)) + row("Used", pct(cpu.used_pct));
+  const mt = mem.total_bytes || 1;
+  const seg = (b, c) => `<i style="width:${(b || 0) / mt * 100}%;background:${c}"></i>`;
+  $("memBar").innerHTML = seg(mem.active_bytes, "#38bdf8") + seg(mem.wired_bytes, "#2f7cf6") +
+    seg(mem.compressed_bytes, "#2fd48c") + seg(mem.inactive_bytes, "#6e86ad");
+  const sw = mem.swap || {};
+  $("memRows").innerHTML =
+    row("Active", fmtBytes(mem.active_bytes)) + row("Wired", fmtBytes(mem.wired_bytes)) +
+    row("Compressed", fmtBytes(mem.compressed_bytes)) + row("Inactive", fmtBytes(mem.inactive_bytes)) +
+    row("Free", fmtBytes(mem.free_bytes)) +
+    row("File-backed", fmtBytes(mem.file_backed_bytes)) +
+    row("Anonymous", fmtBytes(mem.anonymous_bytes)) +
+    row("Speculative", fmtBytes(mem.speculative_bytes)) +
+    row("Swap used", sw.used_mb != null ? `${fmtBytes(sw.used_mb * 1048576)} of ${fmtBytes((sw.total_mb || 0) * 1048576)}` : "—");
+  $("volList").innerHTML = (sys.disks || []).map(d => `
+    <div class="row"><span class="k">${esc(d.label)} <span style="color:var(--faint)">${esc(d.path)}</span></span>
+    <span class="v">${fmtBytes(d.free_bytes)} free · ${Number(d.used_pct || 0).toFixed(0)}%</span></div>
+    <div class="bar single"><i style="width:${d.used_pct || 0}%;background:${(d.used_pct || 0) > 90 ? "#ff6b6b" : (d.used_pct || 0) > 80 ? "#f5a623" : "#2f7cf6"}"></i></div>`).join("");
+
+  trackNet(net);
+  renderProcesses(sys.top_processes || []);
+  renderDarkbloom(db, earn, est);
+  renderEarnings(earn, est, bal);
+  renderModels(db, earn);
+
+  pushHist("cpu", cpu.used_pct); pushHist("mem", mem.used_pct); pushHist("gpu", gpuPct);
+  pushHist("nin", net.rate_in_bps); pushHist("nout", net.rate_out_bps); pushHist("bal", bal);
+  drawCharts();
+  $("netNote").textContent = `session here: ↓ ${fmtBytes(sessionNet.bytesIn)} ↑ ${fmtBytes(sessionNet.bytesOut)}`;
+  $("balNote").textContent = openBalance != null && bal != null
+    ? `+${fmtUsd(bal - openBalance, 4)} since this page opened` : "";
+
+  $("aboutRows").innerHTML =
+    row("Bridge", `v${esc((ov.bridge || {}).version || "?")} · up ${esc(fmtDur((ov.bridge || {}).uptime_seconds))}`) +
+    row("Data age", ov.generated_at ? fmtAgo(ov.generated_at) : "—");
+  renderCombined();
+  $("watchRows").innerHTML =
+    row("State file", db.provider_state_written_at ? `written ${fmtAgo(db.provider_state_written_at)}` : "—") +
+    row("Decisions log", "state changes under Events");
+}
+
+const sessionNet = { bytesIn: 0, bytesOut: 0, lastIn: null, lastOut: null };
+function trackNet(net) {
+  if (sessionNet.lastIn != null && net.bytes_in != null)
+    sessionNet.bytesIn += Math.max(0, net.bytes_in - sessionNet.lastIn);
+  if (sessionNet.lastOut != null && net.bytes_out != null)
+    sessionNet.bytesOut += Math.max(0, net.bytes_out - sessionNet.lastOut);
+  sessionNet.lastIn = net.bytes_in; sessionNet.lastOut = net.bytes_out;
+}
+
+function renderProcesses(procs) {
+  const f = ($("procFilter").value || "").toLowerCase();
+  const list = procs.filter(p => !f || (p.name || "").toLowerCase().includes(f));
+  const maxCpu = Math.max(1, ...procs.map(p => p.cpu_pct || 0));
+  $("procList").innerHTML = `<table><tr><th>Process</th><th class="num">CPU</th><th class="num">MEM</th><th class="num">Time</th></tr>${
+    list.map(p => `<tr><td><span class="procbar"><i style="width:${(p.cpu_pct || 0) / maxCpu * 100}%"></i></span>${esc(p.name)}</td>
+      <td class="num">${pct(p.cpu_pct)}</td><td class="num">${pct(p.mem_pct)}</td>
+      <td class="num">${esc(p.elapsed || "")}</td></tr>`).join("")}</table>`;
+}
+
+function renderDarkbloom(db, earn, est) {
+  $("dbRows").innerHTML =
+    row("Version", esc(db.version)) + row("PID", esc(db.pid)) +
+    row("Uptime", esc(fmtDur(db.uptime_seconds))) +
+    row("Lifecycle", esc(db.lifecycle || "—")) +
+    row("Current model", esc(db.current_model || "—")) +
+    row("State file", db.provider_state_written_at ? `written ${fmtAgo(db.provider_state_written_at)}` : "—");
+  const st = db.stats || {};
+  $("dbStats").innerHTML =
+    row("Requests served", fmtInt(st.requests_served)) +
+    row("Tokens generated", fmtInt(st.tokens_generated)) +
+    row("Usage gaps", esc(st.usage_gaps ?? "—")) +
+    row("Last credit", db.last_credit_at ? fmtAgo(db.last_credit_at) : "—");
+  const cap = db.capacity || {};
+  $("dbCap").innerHTML =
+    row("Total", fmtGb(cap.total_memory_gb)) + row("Active", fmtGb(cap.gpu_active_gb)) +
+    row("Cache", fmtGb(cap.gpu_cache_gb)) +
+    row("Free for new loads", fmtGb(cap.free_for_load_gb)) +
+    row("Load usable", fmtGb(cap.load_usable_gb)) +
+    row("Load headroom", fmtGb(cap.load_headroom_gb));
+  const tr = db.trust || {}, at = db.app_attest || {};
+  $("trustRows").innerHTML =
+    row("Trust level", esc(tr.level || "—")) + row("Status", esc(tr.status || "—")) +
+    row("Reason", esc(tr.reason || "—")) + row("Path", esc(tr.path || "—")) +
+    row("Session expires", tr.session_expires_at ? `${fmtClock(tr.session_expires_at)} (${fmtDur(tr.session_expires_at - Date.now() / 1000)} left)` : "—") +
+    row("Verification pending", db.verification_pending ? "yes" : "no");
+  $("attestRows").innerHTML =
+    row("Attested", at.attested == null ? "—" : (at.attested ? "yes" : "no")) +
+    row("Attest key age", esc(fmtDur(at.key_age_seconds))) +
+    row("Last Apple success", at.last_success_age_seconds == null ? "—" : fmtAgo(Date.now() / 1000 - at.last_success_age_seconds)) +
+    row("Consecutive failures", esc(at.consecutive_failures ?? "—")) +
+    row("Generations (24h)", esc(at.generations_last_24h ?? "—"));
+  $("trustNote").textContent = db.verification_pending
+    ? "Trust promotion is decided by Darkbloom's coordinator — the ledger is ground truth; paid jobs land either way." : "";
+  const ap = db.autopilot || {};
+  $("apRows").innerHTML =
+    row("Phase", esc(ap.phase || "—")) + row("Mode", ap.observe_only ? "shadow (observe only)" : "active") +
+    row("Enabled", esc(ap.enabled ?? "—")) + row("Active", esc(ap.active ?? "—")) +
+    row("Paused", esc(ap.paused ?? "—")) + row("Max model slots", esc(ap.max_model_slots ?? "—"));
+}
+
+function renderModels(db, earn) {
+  const pm = earn.per_model_recent || {};
+  const residents = {}; (db.resident_models || []).forEach(r => residents[r.model] = r);
+  const slots = {}; (db.slots || []).forEach(s => slots[s.model] = s);
+  const names = new Set([...(db.advertised_models || []), ...(db.warm_models || []),
+    ...Object.keys(residents), ...Object.keys(slots), ...Object.keys(pm)]);
+  const warm = new Set(db.warm_models || []);
+  $("modelSummary").textContent = `${warm.size} warm of ${(db.advertised_models || []).length} advertised`;
+  const rowsHtml = [...names].sort().map(m => {
+    const r = residents[m], s = slots[m], e = pm[m];
+    const state = r || warm.has(m) ? '<span style="color:var(--green);font-weight:700">WARM</span>'
+      : '<span style="color:var(--faint);font-weight:700">COLD</span>';
+    const mtp = s ? (s.mtp_enabled ? (s.mtp_active ? "on · active" : "on · idle") : "off") : "—";
+    return `<tr><td>${m === db.current_model ? "● " : ""}${esc(m)}</td><td>${state}</td>
+      <td class="num">${r ? `${fmtGb(r.resident_gb)} <span style="color:var(--faint)">(w ${fmtGb(r.weights_gb)})</span>` : "—"}</td>
+      <td class="num">${r ? esc(fmtDur(r.idle_seconds)) : "—"}</td>
+      <td>${esc(mtp)}</td><td>${esc(s ? (s.kv_backend || "—") : "—")}</td>
+      <td class="num">${e ? fmtInt(e.jobs) : "—"}</td>
+      <td class="num">${e ? fmtUsd(e.micro_usd / 1e6, 4) : "—"}</td></tr>`;
+  }).join("");
+  $("modelMatrix").innerHTML = names.size
+    ? `<table><tr><th>Model</th><th>State</th><th class="num">Resident</th><th class="num">Idle</th><th>MTP</th><th>Engine</th><th class="num">Jobs</th><th class="num">Earned</th></tr>${rowsHtml}</table>`
+    : '<div class="rows"><div class="row"><span class="k">no models reported</span></div></div>';
+}
+
+function nextMilestone(bal) {
+  // Rolling target: $1 (the withdrawal minimum), then 2/5 x 10^n steps.
+  const steps = [];
+  for (let p = 1; p <= 100000; p *= 10) steps.push(p, p * 2, p * 5);
+  let prev = 0;
+  for (const s of steps) { if (bal < s) return { prev, next: s }; prev = s; }
+  return { prev, next: prev * 2 };
+}
+function renderEarnings(earn, est, bal) {
+  lastEarn = { earn, est, bal };
+  const histArr = earn.history || earn.recent || [];
+  lastHist = Array.isArray(histArr) ? histArr : [];
+  $("earnBig").textContent = fmtUsd(earn.balance_usd, 4);
+  const ms = bal != null ? nextMilestone(bal) : null;
+  $("earnProg").style.width = bal == null ? "0%"
+    : `${Math.min(100, (bal - ms.prev) / (ms.next - ms.prev) * 100)}%`;
+  $("earnRows").innerHTML =
+    row("Withdrawable", fmtUsd(earn.withdrawable_usd, 4)) +
+    row("Lifetime total", fmtUsd(earn.total_usd, 4)) +
+    (bal == null ? row("Next milestone", "—")
+      : bal < 1 ? row("To $1 withdrawal minimum", fmtUsd(1 - bal, 3))
+      : row("Next milestone", `${fmtUsd(ms.next, 0)} · ${fmtUsd(ms.next - bal, 3)} to go`)) +
+    row("Base rewards (recent)", fmtUsd((earn.base_rewards_micro_usd_recent || 0) / 1e6, 4)) +
+    row("Paid jobs (recent history)", fmtInt(earn.jobs_in_history)) +
+    row("Last credit", earn.last_credit_at ? fmtAgo(earn.last_credit_at) : "—");
+
+  // estimates — live, from the bridge's snapshot ledger
+  if (est) {
+    $("estDay").textContent = fmtUsd(est.per_day_usd, 2);
+    $("estWeek").textContent = fmtUsd(est.per_week_usd, 2);
+    $("estMonth").textContent = fmtUsd(est.per_month_usd, 2);
+    const b = est.basis || {}, comps = est.components || {}, spans = b.spans || {};
+    const compRow = (label, key) => comps[key] != null
+      ? row(label, `${fmtUsd(comps[key], 2)}/day <span style="color:var(--faint)">(${esc(fmtDur(spans[key]))})</span>`) : "";
+    const split = est.split, serving = est.serving;
+    const msT = bal != null ? nextMilestone(bal) : null;
+    const eta = bal != null && est.per_day_usd > 0
+      ? fmtDur((msT.next - bal) / est.per_day_usd * 86400) : null;
+    let sessRate = "—";
+    if (openBalance != null && bal != null) {
+      const hrs = (Date.now() - pageStart) / 3600000;
+      if (hrs > 0.01) sessRate = fmtUsd((bal - openBalance) / hrs, 3) + "/hr since page opened";
+    }
+    $("estRows").innerHTML =
+      row("Basis", esc(b.label || "—")) +
+      (est.confidence ? row("Confidence", esc(est.confidence) + (est.confidence === "early" ? " — ledger is young; sharpens over days" : "")) : "") +
+      compRow("Realized · last hour", "last_hour") +
+      compRow("Realized · last 6h", "last_6h") +
+      compRow("Realized · last 24h", "last_24h") +
+      compRow("Realized · last 7d", "last_7d") +
+      (split ? row("Base floor", `${fmtUsd(split.base_per_day_usd, 2)}/day`) +
+               row("Paid jobs", `${fmtUsd(split.jobs_per_day_usd, 2)}/day`) : "") +
+      (serving ? row("Provider online", `${Math.round(serving.online_fraction * 100)}% of tracked time`) +
+               (serving.per_day_while_serving_usd != null ? row("While serving", `${fmtUsd(serving.per_day_while_serving_usd, 2)}/day`) : "") : "") +
+      (est.per_day_usd > 0 ? row("Projection", `+${fmtUsd(est.per_day_usd * 7, 2)} in 7 days at this rate`) : "") +
+      (b.window_usd != null ? row("API window", `${fmtUsd(b.window_usd, 4)} across ${esc(b.window_credits ?? "—")} credits in ${esc(fmtDur(b.window_seconds))}`) : "") +
+      (est.tracked_since ? row("Ledger tracked since", esc(new Date(est.tracked_since * 1000).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }))) : "") +
+      row("Live session rate", sessRate) +
+      (eta ? row(bal < 1 ? "To $1 at this rate" : `To ${fmtUsd(msT.next, 0)} at this rate`, `~${eta}`) : "");
+  } else {
+    $("estDay").textContent = $("estWeek").textContent = $("estMonth").textContent = "—";
+    $("estRows").innerHTML = row("Basis", "not enough credits in the window yet — estimates appear once the recent ledger spans a minute or more");
+  }
+  drawLedger(est);
+
+  // window analytics from the full history
+  const paid = lastHist.filter(j => j.model !== "base_reward");
+  const times = lastHist.map(j => isoTs(j.created_at)).filter(x => x != null);
+  const spanH = times.length > 1 ? (Math.max(...times) - Math.min(...times)) / 3600 : 0;
+  const winUsd = lastHist.reduce((a, j) => a + (j.amount_micro_usd || 0), 0) / 1e6;
+  const avgIn = paid.length ? paid.reduce((a, j) => a + (j.prompt_tokens || 0), 0) / paid.length : null;
+  const avgOut = paid.length ? paid.reduce((a, j) => a + (j.completion_tokens || 0), 0) / paid.length : null;
+  $("earnAnalytics").innerHTML =
+    row("Credits in window", fmtInt(lastHist.length)) +
+    row("Window span", spanH ? fmtDur(spanH * 3600) : "—") +
+    row("Earned in window", fmtUsd(winUsd, 4)) +
+    row("Paid jobs / hour", spanH ? (paid.length / spanH).toFixed(1) : "—") +
+    row("Avg per paid job", paid.length ? fmtUsd(paid.reduce((a, j) => a + (j.amount_micro_usd || 0), 0) / paid.length / 1e6, 4) : "—") +
+    row("Avg tokens in / out", avgIn != null ? `${fmtInt(avgIn)} / ${fmtInt(avgOut)}` : "—");
+
+  // per model (+ base reward row, like the app)
+  const pm = earn.per_model_recent || {};
+  const totalMicro = Object.values(pm).reduce((a, s) => a + s.micro_usd, 0) + (earn.base_rewards_micro_usd_recent || 0);
+  const pmRows = Object.entries(pm).sort((a, b) => b[1].micro_usd - a[1].micro_usd).map(([m, s]) => `
+    <tr><td>${esc(m)}</td><td class="num">${fmtInt(s.jobs)}</td><td class="num">${fmtUsd(s.micro_usd / 1e6, 4)}</td>
+    <td style="width:34%"><div class="bar single" style="margin:0"><i style="width:${totalMicro ? s.micro_usd / totalMicro * 100 : 0}%;background:#2fd48c"></i></div></td></tr>`).join("");
+  const baseRow = (earn.base_rewards_micro_usd_recent || 0) > 0 ? `
+    <tr><td>Base reward (online floor)</td><td class="num">—</td><td class="num">${fmtUsd(earn.base_rewards_micro_usd_recent / 1e6, 4)}</td>
+    <td><div class="bar single" style="margin:0"><i style="width:${totalMicro ? earn.base_rewards_micro_usd_recent / totalMicro * 100 : 0}%;background:#6e86ad"></i></div></td></tr>` : "";
+  $("perModel").innerHTML = (pmRows || baseRow)
+    ? `<table><tr><th>Model</th><th class="num">Jobs</th><th class="num">Earned</th><th>Share</th></tr>${pmRows}${baseRow}</table>`
+    : '<div class="rows"><div class="row"><span class="k">no jobs in window</span></div></div>';
+
+  // credits by hour
+  const buckets = {};
+  lastHist.forEach(j => { const t = isoTs(j.created_at); if (t == null) return;
+    const d = new Date(t * 1000); const key = d.getHours();
+    const label = d.toLocaleTimeString("en-US", { hour: "numeric" });
+    buckets[key] = buckets[key] || { label, v: 0, t };
+    buckets[key].v += (j.amount_micro_usd || 0) / 1e6; });
+  const ordered = Object.values(buckets).sort((a, b) => a.t - b.t).slice(-8);
+  drawBars($("chHours"), ordered);
+
+  renderJobs();
+}
+
+function plotLedger(cv, pts, color, fmtY) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = cv.clientWidth, h = cv.clientHeight;
+  if (!w) return;
+  if (cv.width !== Math.round(w * dpr)) { cv.width = w * dpr; cv.height = h * dpr; }
+  const ctx = cv.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  if (pts.length < 2) { ctx.fillStyle = "#6e86ad"; ctx.font = "11px sans-serif";
+    ctx.fillText("collecting…", 6, 16); return; }
+  const t0 = pts[0][0], t1 = pts[pts.length - 1][0], span = Math.max(1, t1 - t0);
+  let min = Math.min(...pts.map(p => p[1])), max = Math.max(...pts.map(p => p[1]));
+  if (max - min < 1e-9) max = min + 1;
+  const pad = (max - min) * 0.12; min -= pad; max += pad;
+  ctx.strokeStyle = "rgba(143,176,216,.13)"; ctx.fillStyle = "#6e86ad"; ctx.font = "10px sans-serif"; ctx.lineWidth = 1;
+  for (let i = 1; i <= 3; i++) { const y = h - 14 - (h - 22) * i / 3;
+    ctx.beginPath(); ctx.moveTo(46, y); ctx.lineTo(w, y); ctx.stroke();
+    ctx.fillText(fmtY(min + (max - min) * i / 3), 2, y + 3); }
+  ctx.strokeStyle = color; ctx.lineWidth = 1.7; ctx.beginPath();
+  pts.forEach((p, i) => { const x = 46 + (p[0] - t0) / span * (w - 48),
+    y = h - 14 - (h - 22) * (p[1] - min) / (max - min);
+    i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+  ctx.stroke();
+}
+function drawLedger(est) {
+  const series = (est && est.series) || [];
+  plotLedger($("chEarn"), series.map(p => [p[0], p[1] / 1e6]), "#2fd48c", v => "$" + v.toFixed(2));
+  const rates = [];
+  for (let i = 0; i < series.length; i++) {
+    const [t, tot] = series[i];
+    let j = 0; for (let k = 0; k < i; k++) if (series[k][0] <= t - 3600) j = k;
+    const dt = t - series[j][0];
+    if (dt >= 120) rates.push([t, (tot - series[j][1]) / 1e6 / dt * 86400]);
+  }
+  plotLedger($("chRate"), rates, "#2f7cf6", v => "$" + v.toFixed(1));
+}
+
+function renderJobs() {
+  const sel = $("jobModelFilter");
+  const models = [...new Set(lastHist.map(j => j.model))].sort();
+  // Rebuilding the <select> on every poll destroys an open dropdown — only
+  // rebuild when the model set actually changed.
+  const sig = models.join("\u0001");
+  if (sel.dataset.sig !== sig) {
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">all models</option>' +
+      models.map(m => `<option ${m === cur ? "selected" : ""}>${esc(m)}</option>`).join("");
+    sel.dataset.sig = sig;
+  }
+  const f = sel.value;
+  const list = lastHist.filter(j => !f || j.model === f);
+  $("jobList").innerHTML = list.length ? `<table><tr><th>Time</th><th>Model</th><th class="num">In</th><th class="num">Out</th><th class="num">Amount</th></tr>${
+    list.map(j => `<tr><td>${esc(j.created_at ? new Date(j.created_at).toLocaleTimeString("en-US", {hour: "numeric", minute: "2-digit"}) : "—")}</td>
+      <td>${j.model === "base_reward" ? "Base reward" : esc(j.model)}</td><td class="num">${fmtInt(j.prompt_tokens)}</td>
+      <td class="num">${fmtInt(j.completion_tokens)}</td>
+      <td class="num">${fmtUsd(j.amount_micro_usd != null ? j.amount_micro_usd / 1e6 : j.amount_usd, 4)}</td></tr>`).join("")}</table>`
+    : '<div class="rows"><div class="row"><span class="k">none</span></div></div>';
+}
+</script>
+
+<script>
+"use strict";
+/* ---------- decisions / events ---------- */
+let decisionsCache = [], lastSeenTs = 0, evtFilter = "", newSinceOpen = new Set();
+function toast(msg) {
+  const t = document.createElement("div");
+  t.className = "toast"; t.textContent = msg;
+  $("toasts").appendChild(t);
+  setTimeout(() => t.remove(), 7000);
+}
+function renderDecisions() {
+  const list = decisionsCache.filter(e => !evtFilter || e.type.includes(evtFilter) ||
+    (evtFilter === "earning" && e.type.includes("earning")));
+  $("decList").innerHTML = list.slice().reverse().map(e => `
+    <div class="evt ${newSinceOpen.has(e.ts) ? "new" : ""}"><span class="t">${esc(fmtClock(e.ts))}</span>
+    <span class="ty">${esc(e.type)}</span>
+    <span class="d">${esc(e.detail ? JSON.stringify(e.detail) : "")}</span></div>`).join("")
+    || '<div class="evt"><span class="d">no events match</span></div>';
+}
+async function tickDecisions() {
+  try {
+    const r = await fetch("/api/decisions?limit=40", { cache: "no-store" });
+    if (!r.ok) return;
+    const d = await r.json();
+    const fresh = (d.decisions || []).filter(e => e.ts > lastSeenTs && lastSeenTs > 0);
+    decisionsCache = d.decisions || [];
+    if (decisionsCache.length) lastSeenTs = Math.max(lastSeenTs, ...decisionsCache.map(e => e.ts || 0));
+    fresh.forEach(e => { newSinceOpen.add(e.ts); toast(`⚠ ${e.type} — ${fmtClock(e.ts)}`); });
+    if (fresh.length && currentView !== "events") {
+      const b = $("evtBadge"); b.style.display = ""; b.textContent = newSinceOpen.size;
+    }
+    renderDecisions();
+  } catch (e) { /* keep last */ }
+}
+
+/* ---------- endpoint probes + page stats ---------- */
+const PROBES = ["/api/health", "/api/system", "/api/darkbloom", "/api/lmstudio", "/api/windows", "/api/mining", "/api/decisions?limit=1"];
+async function tickProbes() {
+  const out = [];
+  for (const p of PROBES) {
+    const t0 = performance.now();
+    try { const r = await fetch(p, { cache: "no-store" }); await r.text();
+      out.push([p.split("?")[0], `${Math.round(performance.now() - t0)} ms`]);
+    } catch (e) { out.push([p.split("?")[0], "unreachable"]); }
+  }
+  $("probeRows").innerHTML = out.map(([k, v]) => row(k, esc(v))).join("");
+  $("pageRows").innerHTML =
+    row("Open for", esc(fmtDur((Date.now() - pageStart) / 1000))) +
+    row("Polls", fmtInt(pollCount)) +
+    row("Failed polls", fmtInt(failCount)) +
+    row("Avg latency", pollCount ? `${Math.round(latSum / Math.max(1, pollCount - failCount))} ms` : "—") +
+    row("Poll interval", `${intervalMs / 1000}s`) +
+    row("History samples", fmtInt(hist.cpu.length));
+}
+
+/* ---------- mining + windows + combined ---------- */
+let lastMining = null, lastWindows = null;
+function plotMulti(cv, seriesArr, fmtY) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = cv.clientWidth, h = cv.clientHeight;
+  if (!w) return;
+  if (cv.width !== Math.round(w * dpr)) { cv.width = w * dpr; cv.height = h * dpr; }
+  const ctx = cv.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  const all = seriesArr.flatMap(s => s.pts);
+  if (all.length < 2) { ctx.fillStyle = "#6e86ad"; ctx.font = "11px sans-serif";
+    ctx.fillText("collecting…", 6, 16); return; }
+  const t0 = Math.min(...all.map(p => p[0])), t1 = Math.max(...all.map(p => p[0]));
+  const span = Math.max(1, t1 - t0);
+  let min = Math.min(...all.map(p => p[1])), max = Math.max(...all.map(p => p[1]));
+  if (max - min < 1e-9) max = min + 1;
+  const pad = (max - min) * 0.12; min -= pad; max += pad;
+  ctx.strokeStyle = "rgba(143,176,216,.13)"; ctx.fillStyle = "#6e86ad"; ctx.font = "10px sans-serif"; ctx.lineWidth = 1;
+  for (let i = 1; i <= 3; i++) { const y = h - 14 - (h - 22) * i / 3;
+    ctx.beginPath(); ctx.moveTo(46, y); ctx.lineTo(w, y); ctx.stroke();
+    ctx.fillText(fmtY(min + (max - min) * i / 3), 2, y + 3); }
+  for (const s of seriesArr) {
+    ctx.strokeStyle = s.color; ctx.lineWidth = s.width || 1.6;
+    ctx.setLineDash(s.dashed ? [5, 4] : []);
+    ctx.beginPath();
+    s.pts.forEach((p, i) => { const x = 46 + (p[0] - t0) / span * (w - 48),
+      y = h - 14 - (h - 22) * (p[1] - min) / (max - min);
+      i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+}
+
+function renderMining(mn) {
+  lastMining = mn;
+  const ver = mn.batman_verified, live = mn.batman_live, hist = mn.batman_history;
+  $("kMine").textContent = ver ? fmtUsd(ver.usd_per_day_net, 2) : "—";
+  $("kMineS").textContent = ver ? "Batman-3 · verified live calc" : "no verified data";
+  if (ver) {
+    $("verBig").textContent = fmtUsd(ver.usd_per_day_net, 2) + " /day net";
+    $("verRows").innerHTML =
+      row("Verified gross", `${fmtUsd(ver.usd_per_day_gross, 2)}/day · ${ver.prl_per_day_gross} PRL/day`) +
+      row("Verified / week · / month", `${fmtUsd(ver.usd_per_week_net, 2)} · ${fmtUsd(ver.usd_per_month_net, 2)}`) +
+      row("Hashrate basis", `${ver.hashrate_basis_ths} TH/s (${esc(ver.hashrate_basis)})`) +
+      row("PRL price", `${fmtUsd((ver.network || {}).price_usd, 2)} (${esc((ver.network || {}).price_source || "—")})`) +
+      row("Network", (ver.network || {}).nethash_ths != null
+        ? `${(ver.network.nethash_ths / 1e6).toFixed(1)} EH/s · ${fmtUsd(ver.network.usd_per_th_day, 4)}/TH/day · fee ${ver.network.pool_fee_pct}%` : "—") +
+      row("Kryptex claims (12:32 PM snapshot)", ver.kryptex_claim_per_day_usd != null
+        ? `${fmtUsd(ver.kryptex_claim_per_day_usd, 2)}/day${ver.delta_vs_claim_pct != null ? ` — verified runs ${ver.delta_vs_claim_pct >= 0 ? "+" : ""}${ver.delta_vs_claim_pct}% vs the claim` : ""}` : "—");
+  } else {
+    $("verBig").textContent = "—";
+    $("verRows").innerHTML = row("Status", "waiting on live hashrate + network data");
+  }
+  if (hist && (hist.points || []).length >= 2) {
+    $("histRange").textContent = `${hist.span_hours}h of log · ${fmtInt(hist.sample_count)} samples`;
+    plotMulti($("chHist"), [{ pts: hist.points, color: "#f5a623", width: 1.8 }],
+      v => v.toFixed(0) + "");
+    $("histRows").innerHTML =
+      row("Coverage", `${fmtClock(hist.coverage_from)} → ${fmtClock(hist.coverage_to)}`) +
+      row("Average (active)", hist.avg_active_ths != null ? `${hist.avg_active_ths} TH/s` : "—") +
+      row("Average (overall)", hist.avg_overall_ths != null ? `${hist.avg_overall_ths} TH/s` : "—") +
+      row("Uptime in log", hist.uptime_fraction != null ? Math.round(hist.uptime_fraction * 100) + "%" : "—") +
+      row("Realized in window", hist.realized_prl_est != null
+        ? `${hist.realized_prl_est} PRL ≈ ${fmtUsd(hist.realized_usd_net_est, 2)} net` : "—") +
+      row("Realized basis", esc(hist.realized_basis || "—"));
+  }
+  $("mineLiveChips").innerHTML = live
+    ? chip(live.running ? "MINER RUNNING" : "MINER STOPPED", live.running ? "ok" : "bad") +
+      (live.stale ? chip("last known", "warn") : chip("live", "blue"))
+    : chip("PC UNREACHABLE", "bad");
+  const wm = (lastWindows && lastWindows.miner) || {};
+  $("mineLiveRows").innerHTML = live ? (
+    row("Hashrate now", live.hashrate_ths != null ? `${live.hashrate_ths} TH/s` : "—") +
+    row("Average 1h", live.avg_1h_ths != null ? `${live.avg_1h_ths} TH/s` : "—") +
+    row("Miner power", live.power_w != null ? `${live.power_w} W` : "—") +
+    row("GPU temp", live.gpu_temp_c != null ? `${live.gpu_temp_c}°C` : "—") +
+    row("Shares (session)", wm.accepted != null ? `${fmtInt(wm.accepted)} accepted · ${fmtInt(wm.rejected)} rejected` : "—") +
+    row("Checked", live.checked_at ? fmtAgo(live.checked_at) : "—")) : "";
+}
+
+function renderWindows(w) {
+  lastWindows = w;
+  const chipEl = $("winChip");
+  if (!w || !w.reachable) {
+    chipEl.className = "chip bad"; chipEl.innerHTML = `<span class="dot"></span>OFFLINE`;
+    if (w && w.last_good) { /* bridge keeps last good server-side */ }
+    renderMining(lastMining || { fleet: null, totals: null, batman_live: null });
+    return;
+  }
+  chipEl.className = "chip " + (w.stale ? "warn" : "ok");
+  chipEl.innerHTML = `<span class="dot"></span>${w.stale ? "LAST KNOWN" : "ONLINE"}`;
+  $("winChips").innerHTML =
+    `<span class="tag">${esc(w.os_name || "")} ${esc(w.os_version || "")}</span>` +
+    (w.cpu ? `<span class="tag">${esc(w.cpu.name || "")}</span>` : "") +
+    (w.gpu ? `<span class="tag">${esc(w.gpu.name || "")}</span>` : "");
+  $("wUptime").textContent = fmtDur(w.uptime_seconds);
+  $("wCpuLoad").textContent = w.cpu && w.cpu.load_pct != null ? w.cpu.load_pct + "%" : "—";
+  $("wNetIn").textContent = w.network ? fmtRate(w.network.rate_in_bps) : "—";
+  $("wNetOut").textContent = w.network ? fmtRate(w.network.rate_out_bps) : "—";
+  if (w.cpu) {
+    $("winCpuBar").firstElementChild.style.width = `${w.cpu.load_pct || 0}%`;
+    $("winCpuRows").innerHTML =
+      row("Processor", esc(w.cpu.name || "—")) +
+      row("Cores / threads", `${esc(w.cpu.cores ?? "—")} / ${esc(w.cpu.logical ?? "—")}`) +
+      row("Load", w.cpu.load_pct != null ? w.cpu.load_pct + "%" : "—");
+  }
+  if (w.memory) {
+    $("winMemBar").firstElementChild.style.width = `${w.memory.used_pct || 0}%`;
+    $("winMemRows").innerHTML =
+      row("Used", fmtBytes(w.memory.used_bytes)) +
+      row("Free", fmtBytes(w.memory.free_bytes)) +
+      row("Total", fmtBytes(w.memory.total_bytes)) +
+      row("Used %", pct(w.memory.used_pct));
+  }
+  if (w.gpu) {
+    $("winGpuBar").firstElementChild.style.width = `${w.gpu.util_pct || 0}%`;
+    $("winGpuRows").innerHTML =
+      row("GPU", esc(w.gpu.name || "—")) +
+      row("Utilization", pct(w.gpu.util_pct)) +
+      row("VRAM", `${fmtBytes((w.gpu.mem_used_mb || 0) * 1048576)} of ${fmtBytes((w.gpu.mem_total_mb || 0) * 1048576)}`) +
+      row("Temperature", w.gpu.temp_c != null ? `${w.gpu.temp_c}°C` : "—") +
+      row("Power", w.gpu.power_w != null ? `${w.gpu.power_w} W` : "—");
+  }
+  $("winVolList").innerHTML = (w.disks || []).map(d => `
+    <div class="row"><span class="k">${esc(d.label)}</span>
+    <span class="v">${fmtBytes(d.free_bytes)} free · ${Number(d.used_pct || 0).toFixed(0)}%</span></div>
+    <div class="bar single"><i style="width:${d.used_pct || 0}%;background:${(d.used_pct || 0) > 90 ? "#ff6b6b" : (d.used_pct || 0) > 80 ? "#f5a623" : "#2f7cf6"}"></i></div>`).join("");
+  const m = w.miner || {};
+  $("winMinerRows").innerHTML =
+    row("SRBMiner", m.running ? "running" : "not running") +
+    row("Hashrate", m.hashrate_ths != null ? `${m.hashrate_ths} TH/s` : "—") +
+    row("Avg 15m / 1h / 6h", [m.avg_15m_ths, m.avg_1h_ths, m.avg_6h_ths].map(v => v != null ? v : "—").join(" / ") + " TH/s") +
+    row("Shares", m.accepted != null ? `${fmtInt(m.accepted)} accepted · ${fmtInt(m.rejected)} rejected` : "—") +
+    row("Miner power", m.power_w != null ? `${m.power_w} W` : "—");
+  if (lastMining) renderMining(lastMining);
+}
+
+function renderCombined() {
+  const dbE = (lastOverview && lastOverview.darkbloom && lastOverview.darkbloom.earnings) || {};
+  const est = dbE.estimates || null;
+  const dbDay = est ? est.per_day_usd : null;
+  const mineDay = lastMining && lastMining.batman_verified ? lastMining.batman_verified.usd_per_day_net : null;
+  if (dbDay == null && mineDay == null) { $("combDay").textContent = $("combWeek").textContent = $("combMonth").textContent = "—"; return; }
+  const day = (dbDay || 0) + (mineDay || 0);
+  $("combDay").textContent = fmtUsd(day, 2);
+  $("combWeek").textContent = fmtUsd(day * 7, 2);
+  $("combMonth").textContent = fmtUsd(day * 30, 2);
+  const line = (label, d) => row(label,
+    d == null ? "—" : `${fmtUsd(d, 2)} <span style="color:var(--faint)">· ${fmtUsd(d * 7, 2)}/wk · ${fmtUsd(d * 30, 2)}/mo</span>`);
+  $("combRows").innerHTML =
+    line("Darkbloom (realized, bridge ledger)", dbDay) +
+    line("Mining — Batman-3 (verified, miner log)", mineDay) +
+    row("Darkbloom share", dbDay != null && day > 0 ? Math.round(dbDay / day * 100) + "%" : "—") +
+    row("Mining share", mineDay != null && day > 0 ? Math.round(mineDay / day * 100) + "%" : "—") +
+    row("Darkbloom balance", fmtUsd(dbE.balance_usd, 4));
+  $("combNote").textContent =
+    "Two different kinds of truth, both computed by the bridge: Darkbloom is realized money from its earnings ledger; mining is Batman-3 only, computed from the miner's own log at live network rates. The rest of the Kryptex fleet is excluded \u2014 no trusted source for it. The combined graph accrues mining at the verified rate from the day tracking began.";
+  // combined graph
+  const series = (est && est.series) || [];
+  if (series.length >= 2 && mineDay != null) {
+    const t0 = series[0][0], base = series[0][1] / 1e6, nowS = Date.now() / 1000;
+    const dbPts = series.map(p => [p[0], p[1] / 1e6 - base]);
+    if (nowS - dbPts[dbPts.length - 1][0] > 30) dbPts.push([nowS, dbPts[dbPts.length - 1][1]]);
+    const minePts = dbPts.map(p => [p[0], (p[0] - t0) * mineDay / 86400]);
+    const combPts = dbPts.map((p, i) => [p[0], p[1] + minePts[i][1]]);
+    $("combGraphNote").textContent = `since ${new Date(t0 * 1000).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`;
+    plotMulti($("chComb"), [
+      { pts: combPts, color: "#2fd48c", width: 2 },
+      { pts: dbPts, color: "#38bdf8" },
+      { pts: minePts, color: "#f5a623", dashed: true },
+    ], v => "$" + v.toFixed(2));
+  }
+}
+
+let sideBusy = false;
+async function tickSide() {
+  if (sideBusy) return;
+  sideBusy = true;
+  try {
+    const [rm, rw] = await Promise.all([
+      fetch("/api/mining", { cache: "no-store" }), fetch("/api/windows", { cache: "no-store" })]);
+    if (rm.ok) { const j = await rm.json(); renderMining(j.mining || {}); }
+    if (rw.ok) { const j = await rw.json(); renderWindows(j.windows || {}); }
+  } catch (e) { /* keep last */ }
+  sideBusy = false;
+  renderCombined();
+}
+
+/* ---------- commands ---------- */
+const COMMANDS = [
+  ["Darkbloom status", "darkbloom status"],
+  ["Darkbloom doctor", "darkbloom doctor"],
+  ["Darkbloom re-login", "darkbloom login"],
+  ["Darkbloom restart", "darkbloom restart"],
+  ["Send diagnostics to Darkbloom support", "darkbloom report"],
+  ["Follow the provider log", "tail -f ~/.darkbloom/provider.log"],
+  ["Restart the dashboard bridge", "launchctl kickstart -k gui/$(id -u)/com.example.dashboard-bridge"],
+  ["Bridge health", "curl -s http://127.0.0.1:8901/api/health"],
+  ["Bridge decisions log", "curl -s 'http://127.0.0.1:8901/api/decisions?limit=10'"],
+];
+function copyText(txt) {
+  const done = () => toast("Copied: " + txt);
+  const fallback = () => {
+    const ta = document.createElement("textarea");
+    ta.value = txt; ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta); ta.select();
+    let ok = false;
+    try { ok = document.execCommand("copy"); } catch (e) {}
+    ta.remove();
+    if (ok) done(); else toast("Copy failed — the command is on screen to copy by hand");
+  };
+  // navigator.clipboard only exists in secure contexts; this page is often
+  // served over plain http on the LAN/tailnet, where the Copy buttons used
+  // to silently do nothing at all.
+  if (navigator.clipboard && window.isSecureContext)
+    navigator.clipboard.writeText(txt).then(done, fallback);
+  else fallback();
+}
+function renderCommands() {
+  $("cmdList").innerHTML = COMMANDS.map(([label, cmd], i) => `
+    <div style="margin-top:10px"><div style="color:var(--dim);font-size:12.5px">${esc(label)}</div>
+    <div class="cmd"><code>${esc(cmd)}</code><button data-cmd="${i}">Copy</button></div></div>`).join("");
+  $("cmdList").querySelectorAll("button[data-cmd]").forEach(b =>
+    b.addEventListener("click", () => copyText(COMMANDS[Number(b.dataset.cmd)][1])));
+}
+
+/* ---------- export ---------- */
+function download(name, text, type) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([text], { type }));
+  a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+function jobsCsv() {
+  const lines = ["created_at,model,prompt_tokens,completion_tokens,amount_usd"];
+  lastHist.forEach(j => lines.push([j.created_at, `"${(j.model || "").replace(/"/g, '""')}"`,
+    j.prompt_tokens ?? "", j.completion_tokens ?? "",
+    j.amount_micro_usd != null ? (j.amount_micro_usd / 1e6).toFixed(6) : j.amount_usd ?? ""].join(",")));
+  download("darkbloom-jobs.csv", lines.join("\n"), "text/csv");
+}
+
+/* ---------- views / tabs ---------- */
+let currentView = "ov";
+function redrawDataCharts() {
+  // Canvases inside hidden cards have zero size, so charts drawn while
+  // their tab was hidden stayed blank until the next data poll (up to
+  // 15s for mining). Redraw from the last data received now that the
+  // cards are visible again.
+  if (lastWindows) renderWindows(lastWindows);
+  else if (lastMining) renderMining(lastMining);
+  if (lastEarn) renderEarnings(lastEarn.earn, lastEarn.est, lastEarn.bal);
+  renderCombined();
+}
+function setView(v) {
+  currentView = v;
+  document.querySelectorAll("#tabbar button").forEach(b =>
+    b.classList.toggle("on", b.dataset.view === v));
+  document.querySelectorAll("#grid .card").forEach(c => {
+    const views = (c.dataset.views || "").split(/\s+/);
+    c.style.display = views.includes(v) ? "" : "none";
+  });
+  if (v === "events") { newSinceOpen.clear(); $("evtBadge").style.display = "none"; renderDecisions(); }
+  try { history.replaceState(null, "", "#" + v); } catch (e) {}
+  redrawDataCharts();
+  drawCharts();
+}
+
+/* ---------- polling ---------- */
+let tickBusy = false;
+async function tick() {
+  if (paused || tickBusy) return;
+  tickBusy = true;
+  const t0 = performance.now();
+  pollCount++;
+  try {
+    const r = await fetch("/api/overview", { cache: "no-store" });
+    if (!r.ok) throw new Error("http " + r.status);
+    const ov = await r.json();
+    lastOkAt = Date.now();
+    latSum += performance.now() - t0;
+    $("connChip").className = "chip ok"; $("connText").textContent = "live";
+    $("banner").style.display = "none";
+    document.querySelectorAll("#grid .card").forEach(c => c.classList.remove("stale"));
+    $("latChip").textContent = `${Math.round(performance.now() - t0)} ms`;
+    // A render bug in one section must not masquerade as a dead bridge or
+    // mark fresh data offline — "live" describes the fetch, render is
+    // best-effort per cycle and retries on the next poll.
+    try { render(ov); } catch (e) { console.error("render failed", e); }
+  } catch (e) {
+    failCount++;
+    $("connChip").className = "chip bad"; $("connText").textContent = "offline";
+    $("banner").style.display = "flex";
+    document.querySelectorAll("#grid .card").forEach(c => c.classList.add("stale"));
+  }
+  tickBusy = false;
+  $("updChip").textContent = lastOkAt ? `updated ${fmtAgo(lastOkAt / 1000)}` : "updated —";
+}
+let mainTimer = null;
+function restartTimer() { clearInterval(mainTimer); mainTimer = setInterval(tick, intervalMs); }
+
+/* ---------- wiring ---------- */
+$("pauseBtn").addEventListener("click", () => {
+  paused = !paused;
+  $("pauseBtn").textContent = paused ? "Resume" : "Pause";
+  if (!paused) tick();
+});
+$("refreshBtn").addEventListener("click", () => { tick(); tickDecisions(); });
+$("retryBtn").addEventListener("click", () => tick());
+$("intRange").addEventListener("input", e => {
+  intervalMs = Number(e.target.value) * 1000;
+  $("intVal").textContent = `${e.target.value}s`;
+  restartTimer();
+});
+$("procFilter").addEventListener("input", () => { if (lastOverview) renderProcesses((lastOverview.system || {}).top_processes || []); });
+$("jobModelFilter").addEventListener("change", renderJobs);
+$("csvBtn").addEventListener("click", jobsCsv);
+$("csvBtn2").addEventListener("click", jobsCsv);
+$("snapBtn").addEventListener("click", () =>
+  download("dashboard-snapshot.json", JSON.stringify({ overview: lastOverview, decisions: decisionsCache }, null, 2), "application/json"));
+document.querySelectorAll("#tabbar button").forEach(b =>
+  b.addEventListener("click", () => setView(b.dataset.view)));
+document.querySelectorAll(".evtF").forEach(b => b.addEventListener("click", () => {
+  document.querySelectorAll(".evtF").forEach(x => x.classList.remove("on"));
+  b.classList.add("on"); evtFilter = b.dataset.f; renderDecisions();
+}));
+document.querySelectorAll(".winBtn").forEach(b => b.addEventListener("click", () => {
+  document.querySelectorAll(".winBtn").forEach(x => x.classList.remove("on"));
+  b.classList.add("on"); winSec = Number(b.dataset.win); drawCharts();
+}));
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) { clearInterval(mainTimer); }
+  else if (!paused) { tick(); restartTimer(); }
+});
+document.addEventListener("keydown", e => {
+  if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  const views = ["ov", "sys", "db", "mining", "earn", "win", "events", "console"];
+  const vi = Number(e.key) - 1;
+  if (e.key >= "1" && e.key <= "9" && vi < views.length) setView(views[vi]);
+  else if (e.key === "r" || e.key === "R") tick();
+  else if (e.key === "p" || e.key === "P") $("pauseBtn").click();
+});
+let resizeTimer = 0;
+window.addEventListener("resize", () => {
+  drawCharts();
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(redrawDataCharts, 150);
+});
+
+/* ---------- go ---------- */
+initGauges();
+renderCommands();
+const hv = location.hash.replace("#", "");
+const VIEW_KEYS = ["ov", "sys", "db", "mining", "earn", "win", "events", "console"];
+// The old "all" view was merged into Overview — #all (and anything
+// unrecognized) falls back to Overview rather than a blank page.
+setView(VIEW_KEYS.includes(hv) ? hv : "ov");
+tick(); tickDecisions(); tickProbes(); tickSide();
+restartTimer();
+setInterval(tickDecisions, 20000);
+setInterval(tickProbes, 30000);
+setInterval(tickSide, 15000);
+setInterval(() => { if (lastOkAt) $("updChip").textContent = `updated ${fmtAgo(lastOkAt / 1000)}`; }, 1000);
+</script>
+</body>
+</html>
