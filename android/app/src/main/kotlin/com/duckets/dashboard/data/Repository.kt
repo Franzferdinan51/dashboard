@@ -5,8 +5,10 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import okhttp3.Call
 import okhttp3.Callback
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import org.json.JSONArray
 import org.json.JSONException
@@ -33,6 +35,18 @@ class DashboardRepository(
             .readTimeout(10, TimeUnit.SECONDS)
             .callTimeout(12, TimeUnit.SECONDS)
             .build()
+
+        // Actions can block for minutes server-side (a cold model load
+        // takes as long as it takes, up to ~15 min), so POST /api/action
+        // gets its own client. newBuilder() shares the connection pool
+        // and dispatcher with SHARED_CLIENT — not a second pool to leak.
+        private val ACTION_CLIENT: OkHttpClient = SHARED_CLIENT.newBuilder()
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(16, TimeUnit.MINUTES)
+            .callTimeout(16, TimeUnit.MINUTES)
+            .build()
+
+        private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
     }
 
     /** Trim, drop trailing slashes, and add http:// when no scheme is present. */
@@ -92,6 +106,62 @@ class DashboardRepository(
 
     suspend fun fetchWindows(baseUrl: String): WindowsData =
         parseWindows(getJson(baseUrl, "/api/windows").obj("windows") ?: JSONObject())
+
+    suspend fun fetchActions(baseUrl: String): ActionsData =
+        parseActions(getJson(baseUrl, "/api/actions"))
+
+    suspend fun postAction(baseUrl: String, action: String, target: String? = null): ActionResult {
+        val payload = JSONObject()
+        payload.put("action", action)
+        if (target != null) payload.put("target", target)
+        return parseActionResult(postJson(baseUrl, "/api/action", payload), action)
+    }
+
+    /**
+     * POST counterpart to getJson, with two deliberate differences: it
+     * runs on ACTION_CLIENT (an action may take minutes server-side), and
+     * it parses the body on ANY HTTP status — the action contract answers
+     * 400 with a JSON {"ok": false, "error": ...} body whose words belong
+     * on screen, not folded into a generic HTTP error.
+     */
+    private suspend fun postJson(baseUrl: String, path: String, payload: JSONObject): JSONObject {
+        val url = normalizeBaseUrl(baseUrl) + path
+        val req = Request.Builder().url(url)
+            .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+        val call = ACTION_CLIENT.newCall(req)
+        val (code, text) = suspendCancellableCoroutine { cont ->
+            cont.invokeOnCancellation { call.cancel() }
+            call.enqueue(object : Callback {
+                override fun onFailure(call: Call, e: IOException) {
+                    if (cont.isActive) cont.resumeWithException(e)
+                }
+
+                override fun onResponse(call: Call, response: Response) {
+                    try {
+                        response.use {
+                            val bodyText = it.body?.string() ?: ""
+                            if (cont.isActive) cont.resume(it.code to bodyText)
+                        }
+                    } catch (e: Exception) {
+                        if (cont.isActive) cont.resumeWithException(e)
+                    }
+                }
+            })
+        }
+        return withContext(Dispatchers.IO) {
+            try {
+                JSONObject(text)
+            } catch (e: JSONException) {
+                // A non-JSON body on an error status is a transport-level
+                // failure (proxy page, captive portal); on a 200 it is a
+                // bridge bug. Either way the caller gets an exception,
+                // never a fabricated result.
+                if (code in 200..299) throw e
+                throw IOException("Bridge returned HTTP $code")
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -506,6 +576,48 @@ private fun parseMining(m: JSONObject): MiningData {
                 stale = it.bool("stale") ?: false,
             )
         },
+    )
+}
+
+private fun parseActions(root: JSONObject): ActionsData {
+    // Same rule as parseOverview: an error-shaped 200 body must land in
+    // the error path, never render as a plausible-but-fake control panel.
+    if (!root.has("lmstudio") && !root.has("darkbloom") && !root.has("mining") && !root.has("bridge")) {
+        throw JSONException("Unexpected response from bridge")
+    }
+    val lm = root.obj("lmstudio") ?: JSONObject()
+    val loaded = buildList {
+        lm.arr("loaded")?.let { a ->
+            for (i in 0 until a.length()) {
+                val m = a.optJSONObject(i) ?: continue
+                add(LmLoadedModel(identifier = m.str("identifier") ?: ""))
+            }
+        }
+    }
+    val available = buildList {
+        lm.arr("available")?.let { a ->
+            for (i in 0 until a.length()) {
+                val m = a.optJSONObject(i) ?: continue
+                add(LmAvailableModel(key = m.str("key") ?: "", size = m.str("size")))
+            }
+        }
+    }
+    return ActionsData(
+        lmLoaded = loaded,
+        lmAvailable = available,
+        darkbloomRunning = root.obj("darkbloom")?.bool("running") ?: false,
+        minerRunning = root.obj("mining")?.bool("miner_running") ?: false,
+        bridgeVersion = root.obj("bridge")?.str("version"),
+    )
+}
+
+private fun parseActionResult(root: JSONObject, action: String): ActionResult {
+    val error = root.str("error")
+    return ActionResult(
+        // An "error" field means failure whatever "ok" claims.
+        ok = error == null && (root.bool("ok") ?: false),
+        action = root.str("action") ?: action,
+        message = error ?: root.str("message") ?: "Done.",
     )
 }
 

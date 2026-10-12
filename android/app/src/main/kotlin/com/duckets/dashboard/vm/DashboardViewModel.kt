@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.duckets.dashboard.data.ActionsData
 import com.duckets.dashboard.data.DashboardRepository
 import com.duckets.dashboard.data.Overview
 import kotlinx.coroutines.CancellationException
@@ -31,6 +32,7 @@ data class DashboardUiState(
     val isRefreshing: Boolean = false,
     val latencyMs: Long? = null,
     val testState: TestState = TestState.Idle,
+    val actions: ActionsUiState = ActionsUiState(),
     val cpuHistory: List<Float> = emptyList(),
     val ramHistory: List<Float> = emptyList(),
     val gpuHistory: List<Float> = emptyList(),
@@ -44,6 +46,25 @@ data class DashboardUiState(
         const val MAX_REFRESH_SECONDS = 30
     }
 }
+
+/** Actions tab state: fetched on open (never on the stats poll — the
+ * bridge's control surface changes only when the user acts). */
+data class ActionsUiState(
+    val data: ActionsData? = null,
+    val isLoading: Boolean = false,
+    /** Fetch failure with nothing on screen yet; later failures are
+     * silent and the sections keep their last known state. */
+    val loadError: String? = null,
+    /** The action currently running — one at a time, app-wide. */
+    val inFlight: InFlightAction? = null,
+    /** Last outcome per section ("lmstudio" / "darkbloom" / "mining" /
+     * "bridge"), shown inline until the next refresh or action. */
+    val results: Map<String, ActionOutcome> = emptyMap(),
+)
+
+data class InFlightAction(val action: String, val target: String? = null)
+
+data class ActionOutcome(val message: String, val ok: Boolean)
 
 sealed interface TestState {
     data object Idle : TestState
@@ -175,6 +196,88 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
 
     fun refreshNow() { viewModelScope.launch { refreshOnce() } }
 
+    fun refreshActions() {
+        viewModelScope.launch {
+            _state.update { it.copy(actions = it.actions.copy(isLoading = true)) }
+            try {
+                val data = repo.fetchActions(_state.value.bridgeUrl)
+                _state.update {
+                    it.copy(actions = it.actions.copy(data = data, isLoading = false, loadError = null))
+                }
+            } catch (e: CancellationException) {
+                _state.update { it.copy(actions = it.actions.copy(isLoading = false)) }
+                throw e
+            } catch (e: Exception) {
+                _state.update {
+                    // With data on screen a failed refresh stays silent —
+                    // the sections keep their last known state, the same
+                    // rule the Mining/Windows side fetches follow.
+                    it.copy(
+                        actions = it.actions.copy(
+                            isLoading = false,
+                            loadError = if (it.actions.data == null) friendlyError(e) else it.actions.loadError,
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Fire one bridge action (already user-confirmed in the UI). One at a
+     * time: a second tap while one runs is ignored, because actions like
+     * model loads take minutes and stacking them helps no one. The
+     * bridge's reply (or the failure) lands in the section's result slot,
+     * then the actions state refreshes to reflect the new reality.
+     */
+    fun performAction(action: String, target: String? = null) {
+        val section = when (action) {
+            "lm_load", "lm_unload" -> "lmstudio"
+            "darkbloom_restart" -> "darkbloom"
+            "miner_start", "miner_stop" -> "mining"
+            "bridge_restart" -> "bridge"
+            else -> return
+        }
+        if (_state.value.actions.inFlight != null) return
+        viewModelScope.launch {
+            _state.update {
+                it.copy(
+                    actions = it.actions.copy(
+                        inFlight = InFlightAction(action, target),
+                        results = it.actions.results - section,
+                    )
+                )
+            }
+            try {
+                val result = repo.postAction(_state.value.bridgeUrl, action, target)
+                _state.update {
+                    it.copy(
+                        actions = it.actions.copy(
+                            inFlight = null,
+                            results = it.actions.results + (section to ActionOutcome(result.message, result.ok)),
+                        )
+                    )
+                }
+            } catch (e: CancellationException) {
+                _state.update { it.copy(actions = it.actions.copy(inFlight = null)) }
+                throw e
+            } catch (e: Exception) {
+                _state.update {
+                    it.copy(
+                        actions = it.actions.copy(
+                            inFlight = null,
+                            results = it.actions.results + (section to ActionOutcome(friendlyError(e), false)),
+                        )
+                    )
+                }
+            }
+            // After a bridge restart this first attempt can fail while the
+            // bridge is still down — silent with data on screen, and the
+            // stats poll + pull-to-refresh recover it.
+            refreshActions()
+        }
+    }
+
     fun testConnection(url: String) {
         testJob?.cancel()
         testJob = viewModelScope.launch {
@@ -201,6 +304,7 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
         _state.update {
             it.copy(
                 bridgeUrl = clean, overview = null, mining = null, windows = null,
+                actions = ActionsUiState(),
                 connected = false, everConnected = false,
                 lastError = null, lastUpdatedMillis = 0L, dataTimestampMillis = 0L,
                 latencyMs = null, testState = TestState.Idle,

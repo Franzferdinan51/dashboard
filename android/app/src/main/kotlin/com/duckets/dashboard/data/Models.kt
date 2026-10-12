@@ -312,3 +312,31 @@ data class BatmanHistory(
 )
 
 data class HashratePoint(val tsSec: Double = 0.0, val ths: Double = 0.0)
+
+// ---------------------------------------------------------------------------
+// Actions — the bridge's control surface (GET /api/actions, POST
+// /api/action). Deliberately separate from the read-only stats models:
+// these drive real side effects on the Mac and Batman-3 (model loads,
+// service restarts, the miner), so they never ride the stats poll.
+// ---------------------------------------------------------------------------
+
+data class ActionsData(
+    val lmLoaded: List<LmLoadedModel> = emptyList(),
+    val lmAvailable: List<LmAvailableModel> = emptyList(),
+    val darkbloomRunning: Boolean = false,
+    val minerRunning: Boolean = false,
+    val bridgeVersion: String? = null,
+)
+
+data class LmLoadedModel(val identifier: String = "")
+
+data class LmAvailableModel(val key: String = "", val size: String? = null)
+
+/** The bridge's answer to a POST /api/action. Both response shapes fold
+ * into this — the 200 {"ok", "message"} and the 400 {"ok": false,
+ * "error"} — so [message] always carries the bridge's own words. */
+data class ActionResult(
+    val ok: Boolean = false,
+    val action: String = "",
+    val message: String = "",
+)
