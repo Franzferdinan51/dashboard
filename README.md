@@ -35,6 +35,29 @@ Two parts:
 **Settings**
 - Bridge address and refresh interval (2–30 s)
 
+## v1.1.0 enhancements
+
+- **Adaptive phone + tablet layouts** — phones get bottom navigation and a fluid
+  single column that fits any width; tablets, foldables, and landscape get a
+  navigation rail with paired cards (Processor beside Memory, earnings beside
+  the job ledger) and wider 24dp margins.
+- **Motion & readability** — gauges, meter bars, and sparklines animate between
+  polls, LIVE/EARNING chips pulse, tab switches cross-fade, and the header
+  shows live freshness (`updated 3s ago · 1,537 ms`) with a spinning refresh
+  affordance. The header no longer clips under the status bar.
+- **Pull to refresh everywhere**, skeleton placeholders on first load, and an
+  amber stale-data banner with Retry when the bridge drops.
+- **Overview** — spec chips, per-gauge mini sparklines (CPU / memory / GPU),
+  live up/down network sparklines, and warm models as wrapping chips.
+- **System** — stacked CPU-split and memory-breakdown bars with legends, plus
+  per-process CPU meters.
+- **Darkbloom** — withdrawal-threshold progress ($1 minimum), a recent-jobs
+  timeline, and animated per-model earnings bars.
+- **Settings** — bridge URL validation with inline errors, a Test button that
+  reports latency and bridge version, and refresh-interval presets (2s–30s).
+- **Bridge 1.1.0** — detailed health (version, uptime), CORS + preflight, gzip
+  responses, and a `bridge` block in `/api/overview`.
+
 ## Quick start
 
 ### 1. Run the bridge on the Mac
@@ -75,8 +98,9 @@ The app needs to know where your bridge lives:
 
 Then install: `adb install app/build/outputs/apk/debug/app-debug.apk`
 
-Layout adapts to window size: bottom navigation + single column on phones,
-navigation rail + two-column cards on tablets and landscape.
+Layout adapts to window size: bottom navigation + fluid single column on phones,
+navigation rail + paired two-column cards on tablets, foldables, and landscape,
+with content capped at 1080dp (Settings at 640dp) and centered on wide screens.
 
 ## Privacy
 

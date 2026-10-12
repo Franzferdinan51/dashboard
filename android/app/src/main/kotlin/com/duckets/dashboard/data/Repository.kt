@@ -15,6 +15,24 @@ class DashboardRepository(
         .readTimeout(10, TimeUnit.SECONDS)
         .build(),
 ) {
+    data class Health(val ok: Boolean, val version: String?, val latencyMs: Long)
+
+    suspend fun fetchHealth(baseUrl: String): Health = withContext(Dispatchers.IO) {
+        val started = System.currentTimeMillis()
+        val url = baseUrl.trim().trimEnd('/') + "/api/health"
+        val req = Request.Builder().url(url).get().build()
+        client.newCall(req).execute().use { resp ->
+            if (!resp.isSuccessful) error("Bridge returned HTTP ${resp.code}")
+            val body = resp.body?.string() ?: error("Empty response from bridge")
+            val json = JSONObject(body)
+            Health(
+                ok = json.optBoolean("ok", false),
+                version = json.optString("version").ifBlank { null },
+                latencyMs = System.currentTimeMillis() - started,
+            )
+        }
+    }
+
     suspend fun fetchOverview(baseUrl: String): Overview = withContext(Dispatchers.IO) {
         val url = baseUrl.trimEnd('/') + "/api/overview"
         val req = Request.Builder().url(url).get().build()

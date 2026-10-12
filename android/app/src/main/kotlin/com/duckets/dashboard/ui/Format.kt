@@ -82,3 +82,31 @@ fun fmtLedgerTime(iso: String?): String {
         iso.take(16).replace("T", " ")
     }
 }
+
+/** Relative freshness: "just now", "12s ago", "3m ago". */
+fun fmtFreshness(lastUpdatedMillis: Long, nowMillis: Long = System.currentTimeMillis()): String {
+    if (lastUpdatedMillis <= 0L) return "waiting for first sample"
+    val ageSec = ((nowMillis - lastUpdatedMillis) / 1000).coerceAtLeast(0)
+    return when {
+        ageSec < 3 -> "updated just now"
+        ageSec < 60 -> "updated ${ageSec}s ago"
+        ageSec < 3600 -> "updated ${ageSec / 60}m ago"
+        else -> "updated ${ageSec / 3600}h ago"
+    }
+}
+
+fun isStale(lastUpdatedMillis: Long, refreshSeconds: Int, nowMillis: Long = System.currentTimeMillis()): Boolean {
+    if (lastUpdatedMillis <= 0L) return false
+    val thresholdMs = refreshSeconds.coerceIn(2, 60) * 1000L * 3
+    return (nowMillis - lastUpdatedMillis) > thresholdMs
+}
+
+/** Validate a bridge URL draft. Returns null when valid, else a short reason. */
+fun bridgeUrlError(raw: String): String? {
+    val v = raw.trim()
+    if (v.isEmpty()) return "Enter the bridge address"
+    if (!v.startsWith("http://") && !v.startsWith("https://")) return "Must start with http:// or https://"
+    val host = v.removePrefix("http://").removePrefix("https://").substringBefore("/").substringBefore(":")
+    if (host.isBlank()) return "Missing host — e.g. http://192.168.1.50:8901"
+    return null
+}

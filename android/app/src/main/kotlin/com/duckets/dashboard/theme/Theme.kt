@@ -8,46 +8,54 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
-// Muse Companion visual system, carried over 1:1:
-// Facebook blue (#1877F2) primary, deep-navy ink surfaces, glossy 22dp cards.
+// Refined Muse system: deep-navy ink, one disciplined blue primary,
+// sky for memory, emerald for GPU/earnings. Solid surfaces, hairline
+// borders, no gradient text and no glow-on-everything.
 object Muse {
-    val Blue = Color(0xFF1877F2)
-    val BlueDeep = Color(0xFF0A3F86)
-    val BlueSoft = Color(0xFF3D8BFF)
-    val Ink = Color(0xFF07101C)
-    val Night = Color(0xFF0C1828)
-    val Card = Color(0xFF14305A)
-    val CardAlt = Color(0xFF13233C)
+    val Blue = Color(0xFF2F7CF6)
+    val BlueDeep = Color(0xFF1450B4)
+    val BlueSoft = Color(0xFF7AB3FF)
+    val Sky = Color(0xFF38BDF8)
+    val Emerald = Color(0xFF2FD48C)
+    val Ink = Color(0xFF060D18)
+    val Night = Color(0xFF0A1626)
+    val Card = Color(0xFF0F2342)
+    val CardAlt = Color(0xFF0B1A33)
+    val CardElevated = Color(0xFF14305E)
     val Mist = Color(0xFFF4F8FF)
     val TextDim = Color(0xFF9FB4D8)
-    val TextFaint = Color(0xFF61779C)
-    val Border = Color(0x38FFFFFF) // white @ 22%
-    val Good = Color(0xFF2FD574)
-    val Warn = Color(0xFFFFB02E)
-    val Bad = Color(0xFFFF5C5C)
-    val Purple = Color(0xFF9A6BFF)
-    val Cyan = Color(0xFF39C6F3)
+    val TextFaint = Color(0xFF6E86AD)
+    val Border = Color(0x2EFFFFFF) // white @ 18%
+    val BorderStrong = Color(0x47FFFFFF)
+    val Track = Color(0xFF081426)
+    val Good = Color(0xFF2FD48C)
+    val Warn = Color(0xFFF5A623)
+    val Bad = Color(0xFFFF6B6B)
+    // Legacy alias kept for call sites; now sky, not violet.
+    val Purple = Sky
+    val Cyan = Sky
 
-    val CardShape = RoundedCornerShape(22.dp)
+    val CardShape = RoundedCornerShape(20.dp)
+    val HeroShape = RoundedCornerShape(24.dp)
     val ChipShape = RoundedCornerShape(50)
 
-    /** Deep navy backdrop gradient, top-lit like the Muse app. */
+    /** Deep navy backdrop: near-solid with a faint top light. */
     val Backdrop: Brush
         get() = Brush.verticalGradient(
-            colors = listOf(Color(0xFF0E2142), Night, Ink, Color(0xFF04080F))
+            colors = listOf(Color(0xFF0C1E3A), Night, Ink)
         )
 
-    /** Subtle gloss band used on hero cards. */
+    /** Single top highlight band for hero surfaces only. */
     val Gloss: Brush
         get() = Brush.verticalGradient(
-            colors = listOf(Color(0x2EFFFFFF), Color(0x08FFFFFF), Color(0x00000000))
+            colors = listOf(Color(0x24FFFFFF), Color(0x06FFFFFF), Color(0x00000000))
         )
 }
 
 private val DashboardScheme = darkColorScheme(
     primary = Muse.Blue,
     onPrimary = Color.White,
-    secondary = Muse.BlueSoft,
+    secondary = Muse.Sky,
     background = Muse.Ink,
     onBackground = Muse.Mist,
     surface = Muse.Card,

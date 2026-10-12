@@ -23,7 +23,9 @@ data class DashboardUiState(
     val lastUpdatedMillis: Long = 0L,
     val bridgeUrl: String = DEFAULT_BRIDGE_URL,
     val refreshSeconds: Int = DEFAULT_REFRESH_SECONDS,
-    /** Rolling history (oldest -> newest) for sparklines, capped at 90 samples. */
+    val isRefreshing: Boolean = false,
+    val latencyMs: Long? = null,
+    val testState: TestState = TestState.Idle,
     val cpuHistory: List<Float> = emptyList(),
     val ramHistory: List<Float> = emptyList(),
     val gpuHistory: List<Float> = emptyList(),
@@ -31,10 +33,16 @@ data class DashboardUiState(
     val netOutHistory: List<Float> = emptyList(),
 ) {
     companion object {
-        /** Placeholder LAN default; real deployments override via BuildConfig/local.properties. */
         const val DEFAULT_BRIDGE_URL = com.duckets.dashboard.BuildConfig.DEFAULT_BRIDGE_URL
         const val DEFAULT_REFRESH_SECONDS = 5
     }
+}
+
+sealed interface TestState {
+    data object Idle : TestState
+    data object Testing : TestState
+    data class Ok(val latencyMs: Long, val version: String?) : TestState
+    data class Failed(val message: String) : TestState
 }
 
 class DashboardViewModel(app: Application) : AndroidViewModel(app) {
@@ -52,9 +60,7 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
 
     private var pollJob: Job? = null
 
-    init {
-        startPolling()
-    }
+    init { startPolling() }
 
     fun startPolling() {
         pollJob?.cancel()
@@ -67,9 +73,13 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     suspend fun refreshOnce() {
+        if (_state.value.isRefreshing) return
         val url = _state.value.bridgeUrl
+        _state.update { it.copy(isRefreshing = true) }
+        val started = System.currentTimeMillis()
         try {
             val ov = repo.fetchOverview(url)
+            val latency = System.currentTimeMillis() - started
             _state.update { s ->
                 val gpuPct = ov.darkbloom.capacityTotalGb?.let { total ->
                     ov.darkbloom.gpuActiveGb?.let { active ->
@@ -77,10 +87,8 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
                     }
                 } ?: 0f
                 s.copy(
-                    overview = ov,
-                    connected = true,
-                    everConnected = true,
-                    lastError = null,
+                    overview = ov, connected = true, everConnected = true,
+                    lastError = null, isRefreshing = false, latencyMs = latency,
                     lastUpdatedMillis = System.currentTimeMillis(),
                     cpuHistory = (s.cpuHistory + ov.system.cpu.usedPct.toFloat()).takeLast(90),
                     ramHistory = (s.ramHistory + ov.system.memory.usedPct.toFloat()).takeLast(90),
@@ -90,14 +98,30 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
                 )
             }
         } catch (e: Exception) {
-            _state.update { it.copy(connected = false, lastError = friendlyError(e)) }
+            _state.update { it.copy(connected = false, isRefreshing = false, lastError = friendlyError(e)) }
         }
     }
 
+    fun refreshNow() { viewModelScope.launch { refreshOnce() } }
+
+    fun testConnection(url: String) {
+        viewModelScope.launch {
+            _state.update { it.copy(testState = TestState.Testing) }
+            try {
+                val health = repo.fetchHealth(url.trim())
+                _state.update { it.copy(testState = TestState.Ok(health.latencyMs, health.version)) }
+            } catch (e: Exception) {
+                _state.update { it.copy(testState = TestState.Failed(friendlyError(e))) }
+            }
+        }
+    }
+
+    fun clearTestState() { _state.update { it.copy(testState = TestState.Idle) } }
+
     fun setBridgeUrl(url: String) {
-        val clean = url.trim()
+        val clean = url.trim().trimEnd('/')
         prefs.edit().putString("bridge_url", clean).apply()
-        _state.update { it.copy(bridgeUrl = clean, lastError = null) }
+        _state.update { it.copy(bridgeUrl = clean, lastError = null, testState = TestState.Idle) }
         startPolling()
     }
 

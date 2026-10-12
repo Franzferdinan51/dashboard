@@ -9,11 +9,15 @@ import androidx.compose.ui.unit.sp
 val DashboardTypography = Typography(
     headlineLarge = TextStyle(
         fontFamily = FontFamily.Default, fontWeight = FontWeight.W800,
-        fontSize = 30.sp, lineHeight = 36.sp, letterSpacing = (-0.4).sp,
+        fontSize = 32.sp, lineHeight = 38.sp, letterSpacing = (-0.5).sp,
     ),
     headlineMedium = TextStyle(
         fontFamily = FontFamily.Default, fontWeight = FontWeight.W800,
         fontSize = 24.sp, lineHeight = 30.sp, letterSpacing = (-0.3).sp,
+    ),
+    headlineSmall = TextStyle(
+        fontFamily = FontFamily.Default, fontWeight = FontWeight.W700,
+        fontSize = 20.sp, lineHeight = 26.sp, letterSpacing = (-0.2).sp,
     ),
     titleLarge = TextStyle(
         fontFamily = FontFamily.Default, fontWeight = FontWeight.W700,
@@ -25,7 +29,7 @@ val DashboardTypography = Typography(
     ),
     titleSmall = TextStyle(
         fontFamily = FontFamily.Default, fontWeight = FontWeight.W700,
-        fontSize = 13.sp, lineHeight = 17.sp, letterSpacing = 0.4.sp,
+        fontSize = 13.sp, lineHeight = 17.sp, letterSpacing = 0.2.sp,
     ),
     bodyLarge = TextStyle(
         fontFamily = FontFamily.Default, fontWeight = FontWeight.W500,
@@ -41,14 +45,14 @@ val DashboardTypography = Typography(
     ),
     labelLarge = TextStyle(
         fontFamily = FontFamily.Default, fontWeight = FontWeight.W700,
-        fontSize = 12.5.sp, lineHeight = 16.sp, letterSpacing = 0.6.sp,
+        fontSize = 12.5.sp, lineHeight = 16.sp, letterSpacing = 0.4.sp,
     ),
     labelMedium = TextStyle(
         fontFamily = FontFamily.Default, fontWeight = FontWeight.W700,
-        fontSize = 11.sp, lineHeight = 14.sp, letterSpacing = 0.8.sp,
+        fontSize = 11.sp, lineHeight = 14.sp, letterSpacing = 0.6.sp,
     ),
     labelSmall = TextStyle(
         fontFamily = FontFamily.Default, fontWeight = FontWeight.W700,
-        fontSize = 10.sp, lineHeight = 13.sp, letterSpacing = 0.9.sp,
+        fontSize = 10.sp, lineHeight = 13.sp, letterSpacing = 0.7.sp,
     ),
 )

@@ -24,6 +24,7 @@ Data sources (all local, read-only):
 """
 
 import argparse
+import gzip
 import json
 import os
 import re
@@ -41,6 +42,8 @@ DARKBLOOM_STATE = os.path.join(HOME, ".darkbloom", "daemon-state.json")
 DARKBLOOM_TOKEN = os.path.join(HOME, ".darkbloom", "auth_token")
 LMSTUDIO_KEY = os.path.join(HOME, ".config", "lmstudio", "api_key")
 LMSTUDIO_BASE = "http://127.0.0.1:1234"
+BRIDGE_VERSION = "1.1.0"
+_STARTED_AT = time.time()
 
 # --------------------------------------------------------------------------
 # small helpers
@@ -454,19 +457,36 @@ class Handler(BaseHTTPRequestHandler):
 
     def _send(self, obj, code=200):
         body = json.dumps(obj).encode("utf-8")
+        use_gzip = "gzip" in (self.headers.get("Accept-Encoding") or "") and len(body) > 1024
+        if use_gzip:
+            body = gzip.compress(body, compresslevel=6)
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        if use_gzip:
+            self.send_header("Content-Encoding", "gzip")
         self.end_headers()
         self.wfile.write(body)
+
+    def do_OPTIONS(self):
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def do_GET(self):
         try:
             path = self.path.split("?")[0].rstrip("/") or "/"
             if path in ("/", "/api/health"):
                 self._send({"ok": True, "service": "dashboard-bridge",
-                            "time": time.time(), "version": "1.0.0"})
+                            "time": time.time(), "version": BRIDGE_VERSION,
+                            "uptime_seconds": int(time.time() - _STARTED_AT),
+                            "machine": os.environ.get("DASHBOARD_MACHINE_NAME") or "Mac Studio"})
             elif path == "/api/system":
                 self._send({"generated_at": time.time(), "system": system_stats()})
             elif path == "/api/darkbloom":
@@ -476,6 +496,8 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/api/overview":
                 self._send({
                     "generated_at": time.time(),
+                    "bridge": {"version": BRIDGE_VERSION,
+                               "uptime_seconds": int(time.time() - _STARTED_AT)},
                     "system": system_stats(),
                     "darkbloom": darkbloom_stats(),
                     "lmstudio": lmstudio_stats(),
