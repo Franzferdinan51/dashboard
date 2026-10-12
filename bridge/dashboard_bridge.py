@@ -27,6 +27,7 @@ Data sources (all local, read-only):
 """
 
 import argparse
+import datetime
 import gzip
 import json
 import os
@@ -47,7 +48,7 @@ DARKBLOOM_STATE = os.path.join(HOME, ".darkbloom", "daemon-state.json")
 DARKBLOOM_TOKEN = os.path.join(HOME, ".darkbloom", "auth_token")
 LMSTUDIO_KEY = os.path.join(HOME, ".config", "lmstudio", "api_key")
 LMSTUDIO_BASE = "http://127.0.0.1:1234"
-BRIDGE_VERSION = "1.2.0"
+BRIDGE_VERSION = "1.2.1"
 _STARTED_AT = time.time()
 
 # --------------------------------------------------------------------------
@@ -59,17 +60,43 @@ _cache_lock = threading.Lock()
 _cache_locks = {}
 
 
-def cached(key, ttl, fn):
+def _rebuild_async(key, fn, lock):
+    """Background refresh for stale-while-revalidate keys. A failed rebuild
+    keeps the last good value rather than blanking it."""
+    def work():
+        if not lock.acquire(blocking=False):
+            return
+        try:
+            val = fn()
+            if val is not None:
+                with _cache_lock:
+                    _cache[key] = (time.time(), val)
+        except Exception:
+            pass
+        finally:
+            lock.release()
+    threading.Thread(target=work, daemon=True).start()
+
+
+def cached(key, ttl, fn, swr=False):
     """TTL cache with a per-key build lock (concurrent callers share one
     build instead of stampeding) and short negative caching: a None result
     (a failed fetch) is only held for 10s so one blip can't blank data for
-    the full TTL."""
+    the full TTL.
+
+    With swr=True, an expired-but-present value is served immediately and
+    refreshed in the background — a poll never waits on a slow build (the
+    macOS system sample takes ~1.5s and was landing inside poll latency,
+    which made the app's live updates feel laggy)."""
     now = time.time()
     with _cache_lock:
         hit = _cache.get(key)
         if hit and now - hit[0] < ttl:
             return hit[1]
         lock = _cache_locks.setdefault(key, threading.Lock())
+    if swr and hit is not None and hit[1] is not None:
+        _rebuild_async(key, fn, lock)
+        return hit[1]
     with lock:
         now = time.time()
         with _cache_lock:
@@ -284,12 +311,62 @@ def system_stats():
             "thermal": _thermal(),
             "top_processes": _processes(),
         }
-    return cached("system", 2, build)
+    return cached("system", 2, build, swr=True)
 
 
 # --------------------------------------------------------------------------
 # darkbloom
 # --------------------------------------------------------------------------
+
+def _parse_ts(value):
+    """Ledger timestamps arrive as ISO-8601 UTC strings; accept epoch
+    seconds too. Returns epoch seconds (float) or None."""
+    if isinstance(value, (int, float)) and value > 0:
+        return value / 1000.0 if value > 1e12 else float(value)
+    if isinstance(value, str):
+        try:
+            return datetime.datetime.fromisoformat(
+                value.replace("Z", "+00:00")).timestamp()
+        except Exception:
+            return None
+    return None
+
+
+# "Earning" must mean money actually landed recently — a lifetime job
+# count made the flag permanently true (it stayed on through a 52-minute
+# dead session on 2026-10-12). A provider counts as earning when a ledger
+# credit (paid job or base reward) or session inference activity is newer
+# than this window.
+EARNING_WINDOW_SECONDS = 900
+
+# Session activity tracker: stamped whenever the daemon's request/token
+# counters increase between samples (the ledger check alone can lag —
+# credits settle after the work).
+_SESSION_ACTIVITY = {"requests": None, "tokens": None, "at": 0.0}
+
+
+def _note_session_activity(requests, tokens):
+    prev_r = _SESSION_ACTIVITY["requests"]
+    prev_t = _SESSION_ACTIVITY["tokens"]
+    if (isinstance(requests, (int, float)) and isinstance(prev_r, (int, float))
+            and requests > prev_r):
+        _SESSION_ACTIVITY["at"] = time.time()
+    if (isinstance(tokens, (int, float)) and isinstance(prev_t, (int, float))
+            and tokens > prev_t):
+        _SESSION_ACTIVITY["at"] = time.time()
+    _SESSION_ACTIVITY["requests"] = requests
+    _SESSION_ACTIVITY["tokens"] = tokens
+
+
+def _is_earning(running, last_credit_at, last_activity_at, now,
+                window=EARNING_WINDOW_SECONDS):
+    if not running:
+        return False
+    for ts in (last_credit_at, last_activity_at):
+        if ts and -60 <= now - ts <= window:
+            return True
+    return False
+
 
 def _darkbloom_earnings():
     def fetch():
@@ -302,6 +379,9 @@ def _darkbloom_earnings():
                 "https://api.darkbloom.dev/v1/provider/account-earnings",
                 headers={"Authorization": f"Bearer {token}"}, timeout=5)
             entries = data.get("earnings") or []
+            credit_times = [t for t in (_parse_ts(e.get("created_at"))
+                                         for e in entries) if t]
+            last_credit_at = max(credit_times) if credit_times else None
             per_model = {}
             base_total = 0
             for e in entries:
@@ -329,6 +409,7 @@ def _darkbloom_earnings():
                 "total_usd": data.get("total_usd"),
                 "jobs_in_history": data.get("count"),
                 "history_limit": data.get("history_limit"),
+                "last_credit_at": last_credit_at,
                 "base_rewards_micro_usd_recent": base_total,
                 "per_model_recent": per_model,
                 "recent": recent,
@@ -350,7 +431,8 @@ def _darkbloom_default(installed):
         "lifecycle": None, "current_model": None,
         "trust": {"level": None, "status": None, "reason": None, "path": None,
                   "app_attest_available": None, "session_expires_at": None},
-        "earning": False, "verification_pending": True,
+        "earning": False, "last_credit_at": None,
+        "verification_pending": True,
         "stats": {"requests_served": None, "tokens_generated": None,
                   "usage_gaps": None},
         "capacity": {"total_memory_gb": None, "gpu_active_gb": None,
@@ -425,7 +507,10 @@ def darkbloom_stats():
         })
 
     earnings = _darkbloom_earnings()
-    paid_jobs = (earnings or {}).get("jobs_in_history") or 0
+    last_credit_at = (earnings or {}).get("last_credit_at")
+    if running:
+        _note_session_activity(stats.get("requests_served"),
+                                stats.get("tokens_generated"))
 
     result = {
         "installed": True,
@@ -444,9 +529,13 @@ def darkbloom_stats():
             "app_attest_available": auth.get("app_attest_available"),
             "session_expires_at": auth.get("expires_at"),
         },
-        # Actual paid work beats the console's trust banner: the account
-        # ledger is the ground truth for "is this machine earning".
-        "earning": bool(running and (paid_jobs > 0 or (stats.get("requests_served") or 0) > 0)),
+        # "Earning" = a ledger credit or session activity inside the
+        # recency window — NOT a lifetime job count (that made the flag
+        # permanently true and it lied through a dead session). The app
+        # shows SERVING/READY when this is false but the daemon runs.
+        "earning": _is_earning(running, last_credit_at,
+                               _SESSION_ACTIVITY["at"] or None, time.time()),
+        "last_credit_at": last_credit_at,
         "verification_pending": trust.get("trust_level") != "hardware",
         "stats": {
             "requests_served": stats.get("requests_served"),
@@ -521,7 +610,7 @@ def lmstudio_stats():
                     "loaded_count": sum(1 for m in models if m["state"] == "loaded")}
         except Exception as e:
             return {"reachable": False, "error": str(e)[:120], "models": [], "loaded_count": 0}
-    return cached("lmstudio", 5, fetch)
+    return cached("lmstudio", 5, fetch, swr=True)
 
 
 # --------------------------------------------------------------------------
