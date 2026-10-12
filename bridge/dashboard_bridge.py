@@ -17,6 +17,8 @@ Endpoints:
     GET  /api/darkbloom -> Darkbloom provider only
     GET  /api/lmstudio  -> LM Studio only
     GET  /api/decisions -> recent state-change events (?limit=50)
+    GET  /api/windows   -> Windows PC (Batman-3) vitals + miner state
+    GET  /api/mining    -> Kryptex mining fleet + Batman-3 live miner
     POST /mcp           -> MCP server (read-only tools: health, overview,
                            system, darkbloom, lmstudio, decisions)
 
@@ -28,6 +30,7 @@ Data sources (all local, read-only):
 """
 
 import argparse
+import base64
 import datetime
 import decimal
 import gzip
@@ -50,7 +53,7 @@ DARKBLOOM_STATE = os.path.join(HOME, ".darkbloom", "daemon-state.json")
 DARKBLOOM_TOKEN = os.path.join(HOME, ".darkbloom", "auth_token")
 LMSTUDIO_KEY = os.path.join(HOME, ".config", "lmstudio", "api_key")
 LMSTUDIO_BASE = "http://127.0.0.1:1234"
-BRIDGE_VERSION = "1.5.0"
+BRIDGE_VERSION = "1.7.0"
 _STARTED_AT = time.time()
 
 # --------------------------------------------------------------------------
@@ -371,15 +374,20 @@ def _is_earning(running, last_credit_at, last_activity_at, now,
 
 
 # --- Earnings snapshots: the bridge's own ground-truth ledger -----------
-# Every successful earnings fetch snapshots the API's lifetime total.
-# Realized earnings over any trailing window are then exactly
-# (total_now - total_then): no extrapolation from a handful of recent
-# credits, and immune to credits the recent-entries window skipped.
+# Every successful earnings fetch snapshots the API's lifetime total,
+# split into base-reward vs paid-job cumulative micro-USD (attributed
+# from the credit entries the fetch saw; any unattributed residual is
+# apportioned by the observed mix). Realized earnings over any trailing
+# window are then exact differences of this series — no extrapolation
+# from a handful of recent credits, immune to credits the recent
+# entries window skipped, and downtime-inclusive by construction.
 EARNINGS_SNAPSHOTS = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "earnings-snapshots.jsonl")
 _SNAP_KEEP_SECONDS = 8 * 86400
 _snap_lock = threading.Lock()
 _snap_cache = None
+_split_seen = {}  # (created_at, amount, model) -> True, insertion-ordered
+_split_state = {"base": None, "paid": None}  # cumulative micro, ledger-seeded
 
 
 def _usd_str_to_micro(s):
@@ -391,6 +399,8 @@ def _usd_str_to_micro(s):
 
 
 def _snaps_load():
+    """Rows of (ts, total_micro, base_cum_micro|None, paid_cum_micro|None),
+    oldest first. Two-field legacy rows load with split = None."""
     global _snap_cache
     if _snap_cache is not None:
         return _snap_cache
@@ -399,8 +409,10 @@ def _snaps_load():
         with open(EARNINGS_SNAPSHOTS) as f:
             for line in f:
                 try:
-                    ts, micro = json.loads(line)
-                    rows.append((float(ts), int(micro)))
+                    v = json.loads(line)
+                    rows.append((float(v[0]), int(v[1]),
+                                 int(v[2]) if len(v) > 2 else None,
+                                 int(v[3]) if len(v) > 3 else None))
                 except Exception:
                     continue
     except Exception:
@@ -410,9 +422,10 @@ def _snaps_load():
     return rows
 
 
-def _snap_record(total_micro):
-    """Append a snapshot when the lifetime total moves. Windows are
-    computed against the live point, so unchanged totals need no rows."""
+def _snap_record(total_micro, base_cum, paid_cum):
+    """Append a snapshot when the lifetime total moves (split rides
+    along). Windows are computed against the live point, so unchanged
+    totals need no rows."""
     if total_micro is None:
         return
     now = time.time()
@@ -420,74 +433,170 @@ def _snap_record(total_micro):
         rows = _snaps_load()
         if rows and rows[-1][1] == total_micro:
             return
-        rows.append((now, total_micro))
+        rows.append((now, total_micro, base_cum, paid_cum))
         cutoff = now - _SNAP_KEEP_SECONDS
         kept = [r for r in rows if r[0] >= cutoff] or rows[-1:]
         _snap_cache = kept
         try:
             if len(kept) != len(rows):
                 with open(EARNINGS_SNAPSHOTS, "w") as f:
-                    for ts, micro in kept:
-                        f.write(json.dumps([ts, micro]) + "\n")
+                    for r in kept:
+                        f.write(json.dumps(list(r)) + "\n")
             else:
                 with open(EARNINGS_SNAPSHOTS, "a") as f:
-                    f.write(json.dumps([now, total_micro]) + "\n")
+                    f.write(json.dumps([now, total_micro, base_cum,
+                                        paid_cum]) + "\n")
         except Exception:
             pass
 
 
-def _window_rate(rows, now, current_micro, window):
-    """Realized $/day over the trailing window: (rate, span, earned) or
-    None when the observed span is under 5 minutes."""
-    pts = rows + [(now, current_micro)]
+def _window_series(rows, now, current, window, idx=1):
+    """(rate_per_day, span, earned) for column idx of the snapshot
+    series over the trailing window, against the live point; None when
+    the observed span is under 5 minutes or the column is unknown."""
+    pts = [(r[0], r[idx]) for r in rows if r[idx] is not None]
+    if current is None:
+        return None
+    pts.append((now, current))
+    if len(pts) < 2:
+        return None
     target = now - window
     then = pts[0]
-    for ts, micro in pts:
+    for ts, v in pts:
         if ts <= target:
-            then = (ts, micro)
+            then = (ts, v)
         else:
             break
     span = now - then[0]
     if span < 300:
         return None
-    earned = (current_micro - then[1]) / 1e6
+    earned = (current - then[1]) / 1e6
     if earned < 0:
         return None
     return earned / span * 86400, span, earned
 
 
-def _compute_estimates(now, current_micro, api_fallback):
-    """Estimated returns from the snapshot ledger, blended across
-    trailing windows with the longest window weighted most. Falls back
-    to the API-window estimate until the ledger has ~5+ minutes of
-    span. Realized rates include downtime (Mac asleep, provider down),
-    which is what makes them honest return estimates."""
+_SERVING_CACHE = {"key": None, "frac": None, "span": 0.0}
+
+
+def _serving_fraction(since_ts):
+    """Fraction of the time since `since_ts` the provider was running,
+    reconstructed from the decisions log (darkbloom_started/stopped),
+    which persists across bridge restarts. Returns (fraction|None,
+    covered_span_seconds)."""
+    try:
+        st = os.stat(_DECISIONS_FILE)
+        key = (st.st_mtime, st.st_size, since_ts)
+    except Exception:
+        return None, 0.0
+    if _SERVING_CACHE["key"] == key:
+        return _SERVING_CACHE["frac"], _SERVING_CACHE["span"]
+    events = []
+    try:
+        with open(_DECISIONS_FILE) as f:
+            for line in f:
+                try:
+                    ev = json.loads(line)
+                except Exception:
+                    continue
+                if ev.get("type") in ("darkbloom_started", "darkbloom_stopped"):
+                    events.append((float(ev["ts"]),
+                                   ev["type"] == "darkbloom_started"))
+    except Exception:
+        return None, 0.0
+    now = time.time()
+    if not events:
+        # No transitions in the log: the watcher has seen one steady
+        # state — use the provider's current state for the whole span.
+        cur = globals().get("_last_db_running")
+        frac = (1.0 if cur else 0.0) if cur is not None else None
+        _SERVING_CACHE.update(key=key, frac=frac, span=now - since_ts)
+        return frac, now - since_ts
+    # State before the first known event: the opposite of that event.
+    running = not events[0][1]
+    serving, cursor = 0.0, since_ts
+    for ts, started in events:
+        if ts <= since_ts:
+            running = started
+            continue
+        if running:
+            serving += ts - cursor
+        cursor, running = ts, started
+    if running:
+        serving += now - cursor
+    span = now - since_ts
+    frac = (serving / span) if span > 0 and running is not None else None
+    _SERVING_CACHE.update(key=key, frac=frac, span=span)
+    return frac, span
+
+
+def _compute_estimates(now, total_micro, split_cums, api_fallback):
+    """Estimated returns from the snapshot ledger.
+
+    Headline: realized $/day blended across trailing windows (longest
+    weighted most) — exact ledger differences, downtime included.
+    Also: base-vs-jobs split rates over the longest observed span, the
+    serving-time fraction and the while-serving rate, a confidence
+    grade, and the downsampled cumulative series for graphing."""
     rows = _snaps_load()
-    if current_micro is None or not rows:
+    if total_micro is None or not rows:
         return api_fallback
+    windows = (("last_hour", 3600), ("last_6h", 6 * 3600),
+               ("last_24h", 86400), ("last_7d", 7 * 86400))
     comps, spans = {}, {}
-    for name, w in (("last_hour", 3600), ("last_24h", 86400),
-                    ("last_7d", 7 * 86400)):
-        r = _window_rate(rows, now, current_micro, w)
+    for name, w in windows:
+        r = _window_series(rows, now, total_micro, w)
         if r:
             comps[name] = round(r[0], 4)
             spans[name] = round(r[1])
     if not comps:
         return api_fallback
-    weights = {"last_hour": 0.2, "last_24h": 0.35, "last_7d": 0.45}
+    weights = {"last_hour": 0.15, "last_6h": 0.25, "last_24h": 0.30,
+               "last_7d": 0.30}
     tw = sum(weights[k] for k in comps)
     per_day = sum(comps[k] * weights[k] for k in comps) / tw
+    tracked_since = rows[0][0]
+    tracked_span = now - tracked_since
+    # Split rates over the longest observed span (most stable window).
+    split = None
+    if split_cums is not None:
+        longest = max(spans.values())
+        b = _window_series(rows, now, split_cums[0], longest + 1, idx=2)
+        p = _window_series(rows, now, split_cums[1], longest + 1, idx=3)
+        if b or p:
+            split = {"base_per_day_usd": round(b[0], 4) if b else 0.0,
+                     "jobs_per_day_usd": round(p[0], 4) if p else 0.0}
+    frac, _ = _serving_fraction(tracked_since)
+    while_serving = (round(per_day / frac, 4)
+                     if frac and frac > 0.05 else None)
+    confidence = ("solid" if tracked_span >= 7 * 86400 else
+                  "building" if tracked_span >= 86400 else "early")
     dominant = max(comps, key=lambda k: weights[k])
-    dom_label = {"last_hour": "last hour", "last_24h": "last 24 hours",
-                 "last_7d": "last 7 days"}[dominant]
+    dspan = spans[dominant]
+    if dspan < 3600:
+        span_txt = f"{max(1, round(dspan / 60))}m"
+    elif dspan < 86400:
+        span_txt = f"{dspan / 3600:.1f}".rstrip("0").rstrip(".") + "h"
+    else:
+        span_txt = f"{dspan / 86400:.1f}".rstrip("0").rstrip(".") + "d"
+    stride = max(1, len(rows) // 240)
+    series = [[round(r[0]), r[1]] for r in rows[::stride]]
+    if rows and (not series or series[-1][1] != rows[-1][1]):
+        series.append([round(rows[-1][0]), rows[-1][1]])
     return {
         "per_day_usd": round(per_day, 4),
         "per_week_usd": round(per_day * 7, 4),
         "per_month_usd": round(per_day * 30, 4),
         "method": "bridge-ledger",
-        "tracked_since": rows[0][0],
+        "tracked_since": tracked_since,
+        "confidence": confidence,
         "components": comps,
-        "basis": {"label": f"realized earnings over the {dom_label}",
+        "split": split,
+        "serving": ({"online_fraction": round(frac, 3),
+                     "per_day_while_serving_usd": while_serving}
+                    if frac is not None else None),
+        "series": series,
+        "basis": {"label": f"realized earnings over the last {span_txt}",
                   "spans": spans},
     }
 
@@ -547,7 +656,11 @@ def _darkbloom_earnings():
                         "per_month_usd": round(per_day * 30, 4),
                         "method": "api-window",
                         "tracked_since": None,
+                        "confidence": "early",
                         "components": {},
+                        "split": None,
+                        "serving": None,
+                        "series": [],
                         "basis": {
                             "label": "recent API window (ledger still warming up)",
                             "window_seconds": round(span),
@@ -557,9 +670,57 @@ def _darkbloom_earnings():
                     }
             # Ground truth: snapshot the lifetime total and compute
             # realized trailing-window rates from the bridge's ledger.
+            # Split attribution: entries this bridge hasn't seen before
+            # (deduped by key) split the fetch's total delta into base
+            # vs jobs; any residual (credits the entries window skipped)
+            # is apportioned by the observed mix.
             total_micro = _usd_str_to_micro(data.get("total_usd"))
-            _snap_record(total_micro)
+            new_base = new_paid = 0
+            for e in entries:
+                key = (e.get("created_at"), e.get("amount_micro_usd"),
+                       e.get("model"))
+                if key in _split_seen:
+                    continue
+                _split_seen[key] = True
+                if e.get("model") == "base_reward":
+                    new_base += e.get("amount_micro_usd") or 0
+                else:
+                    new_paid += e.get("amount_micro_usd") or 0
+            while len(_split_seen) > 400:
+                _split_seen.pop(next(iter(_split_seen)))
+            rows_now = _snaps_load()
+            if _split_state["base"] is None:
+                last = rows_now[-1] if rows_now else None
+                _split_state["base"] = last[2] if last and last[2] is not None else 0
+                _split_state["paid"] = last[3] if last and last[3] is not None else 0
+            base_cum = _split_state["base"]
+            paid_cum = _split_state["paid"]
+            prev_total = rows_now[-1][1] if rows_now else None
+            if prev_total is not None and total_micro is not None:
+                delta = total_micro - prev_total
+                obs = new_base + new_paid
+                if delta <= 0:
+                    add_b = add_p = 0
+                elif obs == 0:
+                    hist = base_cum + paid_cum
+                    add_b = round(delta * (base_cum / hist)) if hist else 0
+                    add_p = delta - add_b
+                elif obs >= delta:
+                    add_b = round(new_base * delta / obs)
+                    add_p = delta - add_b
+                else:
+                    res = delta - obs
+                    rb = round(res * (new_base / obs))
+                    add_b, add_p = new_base + rb, new_paid + (res - rb)
+                base_cum += add_b
+                paid_cum += add_p
+            else:
+                base_cum += new_base
+                paid_cum += new_paid
+            _split_state["base"], _split_state["paid"] = base_cum, paid_cum
+            _snap_record(total_micro, base_cum, paid_cum)
             estimates = _compute_estimates(time.time(), total_micro,
+                                           (base_cum, paid_cum),
                                            api_estimates)
             return {
                 "balance_usd": data.get("available_balance_usd"),
@@ -582,6 +743,7 @@ def _darkbloom_earnings():
 
 
 _last_good_darkbloom = None
+_last_db_running = None
 
 
 def _darkbloom_default(installed):
@@ -668,6 +830,8 @@ def darkbloom_stats():
             "resident_seconds": r.get("resident_seconds"),
         })
 
+    global _last_db_running
+    _last_db_running = running
     earnings = _darkbloom_earnings()
     last_credit_at = (earnings or {}).get("last_credit_at")
     if running:
@@ -875,6 +1039,205 @@ def _watcher():
 
 
 # --------------------------------------------------------------------------
+# Windows PC (Batman-3) — system vitals + SRBMiner state, probed from the
+# Mac over SSH (~/bin/batman-ssh) with an EncodedCommand PowerShell script
+# (no quoting games through three shells). Cached SWR; last-good retained
+# when the PC is asleep or off.
+
+_WIN_PS = r"""
+$ProgressPreference = 'SilentlyContinue'
+$ErrorActionPreference = 'SilentlyContinue'
+$os = Get-CimInstance Win32_OperatingSystem
+$cpu = Get-CimInstance Win32_Processor | Select-Object -First 1
+Write-Output ("OS|" + $os.Caption + "|" + $os.Version)
+Write-Output ("BOOT|" + $os.LastBootUpTime.ToString("o"))
+Write-Output ("MEM|" + $os.TotalVisibleMemorySize + "|" + $os.FreePhysicalMemory)
+Write-Output ("CPU|" + $cpu.Name + "|" + $cpu.LoadPercentage + "|" + $cpu.NumberOfCores + "|" + $cpu.NumberOfLogicalProcessors)
+Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3" | ForEach-Object { Write-Output ("DISK|" + $_.DeviceID + "|" + $_.Size + "|" + $_.FreeSpace) }
+$ad = Get-NetAdapterStatistics | Where-Object { $_.ReceivedBytes -gt 0 }
+$rx = ($ad | Measure-Object ReceivedBytes -Sum).Sum
+$tx = ($ad | Measure-Object SentBytes -Sum).Sum
+Write-Output ("NET|" + $rx + "|" + $tx)
+$miner = (Get-Process SRBMiner-MULTI -ErrorAction SilentlyContinue).Count
+Write-Output ("MINER|" + $miner)
+if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) { Write-Output ("NV|" + (& nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw --format=csv,noheader,nounits)) }
+Get-Content "C:\Users\Duckets\Desktop\srbminer\miner.log" -Tail 40 | Select-String -Pattern "TH/s|GH/s|MH/s" | Select-Object -Last 3 | ForEach-Object { Write-Output ("LOG|" + $_.Line) }
+"""
+
+_win_prev_net = {"rx": None, "tx": None, "ts": 0.0}
+_last_good_windows = None
+
+
+def _fnum(s):
+    try:
+        return float(str(s).strip())
+    except Exception:
+        return None
+
+
+def _inum(s):
+    v = _fnum(s)
+    return int(v) if v is not None else None
+
+
+def _parse_windows(out):
+    d = {"reachable": True, "fetched_at": time.time(), "disks": [],
+         "miner": {"running": False}}
+    logs = []
+    for line in (out or "").splitlines():
+        parts = line.strip().split("|")
+        if len(parts) < 2:
+            continue
+        tag = parts[0]
+        if tag == "OS" and len(parts) >= 3:
+            d["os_name"] = parts[1].strip()
+            d["os_version"] = parts[2].strip()
+        elif tag == "BOOT":
+            try:
+                iso = re.sub(r"\.(\d{7,})",
+                             lambda m: "." + m.group(1)[:6], parts[1])
+                boot = datetime.datetime.fromisoformat(iso)
+                d["uptime_seconds"] = int(time.time() - boot.timestamp())
+            except Exception:
+                pass
+        elif tag == "MEM" and len(parts) >= 3:
+            total = (_inum(parts[1]) or 0) * 1024
+            free = (_inum(parts[2]) or 0) * 1024
+            d["memory"] = {
+                "total_bytes": total, "free_bytes": free,
+                "used_bytes": total - free,
+                "used_pct": round((total - free) / total * 100, 1) if total else None}
+        elif tag == "CPU" and len(parts) >= 5:
+            d["cpu"] = {"name": parts[1].strip(),
+                        "load_pct": _inum(parts[2]),
+                        "cores": _inum(parts[3]),
+                        "logical": _inum(parts[4])}
+        elif tag == "DISK" and len(parts) >= 4:
+            size, free = _inum(parts[2]) or 0, _inum(parts[3]) or 0
+            d["disks"].append({
+                "label": parts[1], "total_bytes": size, "free_bytes": free,
+                "used_bytes": size - free,
+                "used_pct": round((size - free) / size * 100, 1) if size else None})
+        elif tag == "NET" and len(parts) >= 3:
+            rx, tx = _inum(parts[1]), _inum(parts[2])
+            now = time.time()
+            rate_in = rate_out = None
+            prev = _win_prev_net
+            if prev["rx"] is not None and rx is not None and now > prev["ts"]:
+                dt = now - prev["ts"]
+                rate_in = max(0, (rx - prev["rx"]) / dt)
+                rate_out = max(0, (tx - prev["tx"]) / dt)
+            _win_prev_net.update(rx=rx, tx=tx, ts=now)
+            d["network"] = {"bytes_in": rx, "bytes_out": tx,
+                            "rate_in_bps": rate_in, "rate_out_bps": rate_out}
+        elif tag == "MINER":
+            d["miner"]["running"] = (_inum(parts[1]) or 0) > 0
+            d["miner"]["process_count"] = _inum(parts[1]) or 0
+        elif tag == "NV":
+            f = [x.strip() for x in parts[1].split(",")]
+            if len(f) >= 6:
+                d["gpu"] = {"name": f[0], "util_pct": _fnum(f[1]),
+                            "mem_used_mb": _fnum(f[2]),
+                            "mem_total_mb": _fnum(f[3]),
+                            "temp_c": _fnum(f[4]), "power_w": _fnum(f[5])}
+        elif tag == "LOG":
+            logs.append("|".join(parts[1:]))
+    m = d["miner"]
+    for line in logs:
+        t = re.search(r"Total:\s*([\d.]+)\s*TH/s", line)
+        if t:
+            m["hashrate_ths"] = float(t.group(1))
+            pw = re.search(r"P:([\d.]+)W", line)
+            if pw:
+                m["power_w"] = float(pw.group(1))
+            sh = re.search(r"A:(\d+)\s+R:(\d+)", line)
+            if sh:
+                m["accepted"] = int(sh.group(1))
+                m["rejected"] = int(sh.group(2))
+        a = re.search(r"Average hashrate: 1m ([\d.]+) TH/s \| 15m ([\d.]+)"
+                      r" TH/s \| 1h ([\d.]+) TH/s \| 6h ([\d.]+) TH/s", line)
+        if a:
+            m["avg_1m_ths"], m["avg_15m_ths"] = float(a.group(1)), float(a.group(2))
+            m["avg_1h_ths"], m["avg_6h_ths"] = float(a.group(3)), float(a.group(4))
+    return d
+
+
+def _windows_fetch():
+    enc = base64.b64encode(_WIN_PS.encode("utf-16-le")).decode()
+    ssh = os.path.expanduser("~/bin/batman-ssh")
+    cmd = [ssh if os.path.exists(ssh) else "batman-ssh",
+           f"powershell -NoProfile -EncodedCommand {enc}"]
+    out = run(cmd, timeout=25)
+    if "OS|" not in (out or ""):
+        return None
+    return _parse_windows(out)
+
+
+def windows_stats():
+    global _last_good_windows
+    got = cached("windows", 30, _windows_fetch, swr=True)
+    if got is not None:
+        _last_good_windows = got
+        return got
+    if _last_good_windows is not None:
+        stale = dict(_last_good_windows)
+        stale["stale"] = True
+        return stale
+    return {"reachable": False,
+            "error": "Batman-3 unreachable (asleep, off, or SSH blocked)"}
+
+
+# --------------------------------------------------------------------------
+# Crypto mining — Kryptex fleet. Fleet figures live in a data file next
+# to the bridge (mining.json, manual snapshots from the Kryptex
+# dashboard; NOT in the git repo — it's his financial data). Batman-3's
+# row is backed by the live Windows probe above.
+
+MINING_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                           "mining.json")
+
+
+def mining_stats():
+    def build():
+        fleet = None
+        try:
+            with open(MINING_FILE) as f:
+                fleet = json.load(f)
+        except Exception:
+            fleet = None
+        batman_live = None
+        win = windows_stats()
+        if win and win.get("reachable") and win.get("miner"):
+            m = win["miner"]
+            batman_live = {
+                "running": bool(m.get("running")),
+                "hashrate_ths": m.get("hashrate_ths"),
+                "avg_1h_ths": m.get("avg_1h_ths"),
+                "power_w": m.get("power_w") or (win.get("gpu") or {}).get("power_w"),
+                "gpu_temp_c": (win.get("gpu") or {}).get("temp_c"),
+                "checked_at": win.get("fetched_at"),
+                "stale": bool(win.get("stale")),
+            }
+        total_day = total_month = None
+        coins = (fleet or {}).get("coins") or []
+        if coins:
+            total_day = round(sum(r.get("per_day_usd") or 0
+                                  for c in coins for r in c.get("rigs") or []), 2)
+            total_month = round(sum(r.get("per_month_usd") or 0
+                                    for c in coins for r in c.get("rigs") or []), 2)
+        return {
+            "fleet": fleet,
+            "batman_live": batman_live,
+            "totals": ({"per_day_usd": total_day,
+                        "per_week_usd": round(total_day * 7, 2),
+                        "per_month_usd": total_month,
+                        "per_year_usd": round(total_day * 365, 2)}
+                       if total_day is not None else None),
+        }
+    return cached("mining", 30, build, swr=True)
+
+
+# --------------------------------------------------------------------------
 # MCP — minimal read-only MCP server (streamable HTTP, stateless)
 #
 # POST /mcp with JSON-RPC 2.0: initialize / ping / tools/list / tools/call.
@@ -906,6 +1269,16 @@ _MCP_TOOLS = [
     {"name": "lmstudio",
      "description": "LM Studio: API reachability and model library with "
                     "per-model state (loaded / not-loaded).",
+     "inputSchema": {"type": "object", "properties": {}}},
+    {"name": "windows",
+     "description": "Windows PC (Batman-3): OS, CPU load, memory, GPU "
+                    "(utilization, temperature, power), disks, network, "
+                    "uptime, and SRBMiner state with live hashrate.",
+     "inputSchema": {"type": "object", "properties": {}}},
+    {"name": "mining",
+     "description": "Kryptex mining fleet: per-rig earnings snapshot "
+                    "(with as-of time), coin subtotals, projections, and "
+                    "Batman-3's live miner state. Separate from Darkbloom.",
      "inputSchema": {"type": "object", "properties": {}}},
     {"name": "decisions",
      "description": "Recent state-change events (newest first): Darkbloom "
@@ -952,6 +1325,10 @@ def _mcp_call_tool(name, args):
         return {"generated_at": time.time(), "darkbloom": darkbloom_stats()}
     if name == "lmstudio":
         return {"generated_at": time.time(), "lmstudio": lmstudio_stats()}
+    if name == "windows":
+        return {"generated_at": time.time(), "windows": windows_stats()}
+    if name == "mining":
+        return {"generated_at": time.time(), "mining": mining_stats()}
     if name == "decisions":
         return {"decisions": decisions_list((args or {}).get("limit", 50))}
     raise ValueError(f"unknown tool: {name}")
@@ -1072,6 +1449,10 @@ class Handler(BaseHTTPRequestHandler):
                 self._send({"generated_at": time.time(), "darkbloom": darkbloom_stats()})
             elif path == "/api/lmstudio":
                 self._send({"generated_at": time.time(), "lmstudio": lmstudio_stats()})
+            elif path == "/api/windows":
+                self._send({"generated_at": time.time(), "windows": windows_stats()})
+            elif path == "/api/mining":
+                self._send({"generated_at": time.time(), "mining": mining_stats()})
             elif path == "/api/decisions":
                 qs = urllib.parse.urlparse(self.path).query
                 limit = urllib.parse.parse_qs(qs).get("limit", ["50"])[0]
