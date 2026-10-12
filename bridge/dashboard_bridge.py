@@ -53,7 +53,7 @@ DARKBLOOM_STATE = os.path.join(HOME, ".darkbloom", "daemon-state.json")
 DARKBLOOM_TOKEN = os.path.join(HOME, ".darkbloom", "auth_token")
 LMSTUDIO_KEY = os.path.join(HOME, ".config", "lmstudio", "api_key")
 LMSTUDIO_BASE = "http://127.0.0.1:1234"
-BRIDGE_VERSION = "1.8.0"
+BRIDGE_VERSION = "1.9.0"
 _STARTED_AT = time.time()
 
 # --------------------------------------------------------------------------
@@ -1162,6 +1162,35 @@ def _parse_windows(out):
     return d
 
 
+BATMAN_LEDGER = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             "batman-hashrate.jsonl")
+
+
+def _ledger_batman(hashrate_ths):
+    """Append one hashrate sample (at most ~1/min) to the bridge's own
+    Batman-3 ledger. The miner's log is trimmed to 5000 lines by the
+    watchdog, so this file is what makes the hashrate history durable —
+    the mining equivalent of the Darkbloom earnings snapshot ledger."""
+    if not hashrate_ths:
+        return
+    try:
+        now = time.time()
+        last = 0.0
+        if os.path.exists(BATMAN_LEDGER):
+            with open(BATMAN_LEDGER, "rb") as f:
+                f.seek(0, 2)
+                size = f.tell()
+                f.seek(max(0, size - 128))
+                tail = f.read().decode("utf-8", "replace").strip().splitlines()
+                if tail:
+                    last = float(tail[-1].split(",")[0])
+        if now - last >= 55:
+            with open(BATMAN_LEDGER, "a") as f:
+                f.write(f"{now:.0f},{hashrate_ths}\n")
+    except Exception:
+        pass
+
+
 def _windows_fetch():
     enc = base64.b64encode(_WIN_PS.encode("utf-16-le")).decode()
     ssh = os.path.expanduser("~/bin/batman-ssh")
@@ -1170,7 +1199,9 @@ def _windows_fetch():
     out = run(cmd, timeout=25)
     if "OS|" not in (out or ""):
         return None
-    return _parse_windows(out)
+    parsed = _parse_windows(out)
+    _ledger_batman((parsed.get("miner") or {}).get("hashrate_ths"))
+    return parsed
 
 
 def windows_stats():
@@ -1261,14 +1292,131 @@ def _pearl_network():
     return cached("pearl-net", 300, build, swr=True)
 
 
-def _batman_verified(win, fleet):
-    """Verified Batman-3 Pearl revenue: the rig's LIVE hashrate from the
-    Windows probe (1h average preferred — the miner's own log, not a
-    pool-side guess) × live network emission share × live price, less
-    the Kryptex pool fee. Kryptex's claim rides along for comparison."""
+_LOG_HIST_PS = (
+    "$ProgressPreference = 'SilentlyContinue'\n"
+    "Get-Content \"C:\\Users\\Duckets\\Desktop\\srbminer\\miner.log\""
+    " -Tail 8000 | Select-String -Pattern \"Total: \""
+    " | ForEach-Object { \"H|\" + $_.Line }"
+)
+
+
+def _weighted_avg(series):
+    """Time-weighted average hashrate: each sample weighted by the time
+    until the next one (capped so a long-offline gap counts once, as
+    downtime, not as hours at the last rate)."""
+    if len(series) < 2:
+        return series[0][1] if series else None
+    dts = [series[i + 1][0] - series[i][0] for i in range(len(series) - 1)]
+    srt = sorted(dts)
+    med = srt[len(srt) // 2] if srt else 0
+    cap = max(2 * med, 120)
+    num = sum(h * min(dt, cap) for (_, h), dt in zip(series, dts))
+    den = sum(min(dt, cap) for dt in dts)
+    return num / den if den else None
+
+
+def _batman_history():
+    """Batman-3's actual hashrate history, from the ground truth: the
+    miner's own log (backfill) merged with the bridge's per-minute
+    ledger (durable). Realized PRL is integrated from hashrate over
+    time at the CURRENT network emission — historical network data
+    isn't recorded, so the label says exactly that."""
+    def build():
+        pts = {}
+        try:
+            enc = base64.b64encode(_LOG_HIST_PS.encode("utf-16-le")).decode()
+            ssh = os.path.expanduser("~/bin/batman-ssh")
+            out = run([ssh if os.path.exists(ssh) else "batman-ssh",
+                       f"powershell -NoProfile -EncodedCommand {enc}"],
+                      timeout=30)
+            for line in (out or "").splitlines():
+                if not line.startswith("H|"):
+                    continue
+                m = re.search(r"\[([^\]]+)\] Total:\s*([\d.]+)\s*TH/s", line)
+                if m:
+                    try:
+                        ts = datetime.datetime.strptime(
+                            m.group(1), "%Y-%m-%d %H:%M:%S").timestamp()
+                        pts[ts] = float(m.group(2))
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+        try:
+            with open(BATMAN_LEDGER) as f:
+                for line in f:
+                    t, h = line.strip().split(",")
+                    pts[float(t)] = float(h)
+        except Exception:
+            pass
+        if len(pts) < 2:
+            return None
+        series = sorted(pts.items())
+        dts = [series[i + 1][0] - series[i][0]
+               for i in range(len(series) - 1)]
+        srt = sorted(dts)
+        med = srt[len(srt) // 2] if srt else 0
+        gap_time = sum(dt for dt in dts if dt > max(3 * med, 300))
+        span = series[-1][0] - series[0][0]
+        active = [h for _, h in series if h > 0]
+        cutoff = series[-1][0] - 86400
+        win24 = [(t, h) for t, h in series if t >= cutoff]
+        net = _pearl_network()
+        realized_prl = realized_usd = None
+        if net:
+            acc = 0.0
+            for (t, h), dt in zip(series, dts):
+                acc += (h / net["nethash_ths"]) * \
+                    (net["emission_prl_day"] / 86400.0) * min(dt, 600)
+            realized_prl = round(acc, 3)
+            realized_usd = round(acc * net["price_usd"]
+                                 * (1 - PEARL_POOL_FEE_PCT / 100.0), 2)
+        step = max(1, len(series) // 240)
+        wire = [[int(t), round(h, 2)] for t, h in series[::step]]
+        if wire[-1][0] != int(series[-1][0]):
+            wire.append([int(series[-1][0]), round(series[-1][1], 2)])
+        return {
+            "points": wire,
+            "coverage_from": series[0][0],
+            "coverage_to": series[-1][0],
+            "span_hours": round(span / 3600.0, 2),
+            "sample_count": len(series),
+            "avg_active_ths": round(sum(active) / len(active), 2)
+                              if active else None,
+            "avg_overall_ths": round(_weighted_avg(series), 2),
+            "avg_24h_overall_ths": (round(_weighted_avg(win24), 2)
+                                    if len(win24) >= 2 else None),
+            "win24_span_hours": (round((win24[-1][0] - win24[0][0]) / 3600.0, 2)
+                                 if len(win24) >= 2 else None),
+            "uptime_fraction": round(1 - gap_time / span, 3) if span else None,
+            "realized_prl_est": realized_prl,
+            "realized_usd_net_est": realized_usd,
+            "realized_basis": "miner-log hashrate integrated at current "
+                              "network emission + price, net of pool fee",
+        }
+    return cached("batman-history", 300, build, swr=True)
+
+
+def _batman_verified(win, fleet, hist=None):
+    """Verified Batman-3 Pearl revenue: the rig's hashrate from ITS OWN
+    log — the sustained last-24h log average when history covers it,
+    else the log's 1h average — × live network emission share × live
+    price, less the Kryptex pool fee. Kryptex's claim (a stale manual
+    snapshot) rides along for comparison only; it is never an input."""
     net = _pearl_network()
     miner = (win or {}).get("miner") or {}
-    basis = miner.get("avg_1h_ths") or miner.get("hashrate_ths")
+    basis = None
+    basis_label = None
+    if hist and hist.get("avg_24h_overall_ths") \
+            and (hist.get("win24_span_hours") or 0) >= 1:
+        basis = hist["avg_24h_overall_ths"]
+        span24 = hist["win24_span_hours"]
+        basis_label = ("miner log average, last 24h" if span24 >= 23.5
+                       else f"miner log average, last {span24:.1f}h")
+    if not basis:
+        basis = miner.get("avg_1h_ths") or miner.get("hashrate_ths")
+        basis_label = ("miner log 1h average" if miner.get("avg_1h_ths")
+                       else "miner log current")
     if not net or not basis:
         return None
     gross_day = basis * net["usd_per_th_day"]
@@ -1280,8 +1428,7 @@ def _batman_verified(win, fleet):
                 claim = r.get("per_day_usd")
     return {
         "hashrate_basis_ths": basis,
-        "hashrate_basis": "miner log 1h average" if miner.get("avg_1h_ths")
-                          else "miner log current",
+        "hashrate_basis": basis_label,
         "prl_per_day_gross": round(basis * net["emission_prl_day"]
                                    / net["nethash_ths"], 3),
         "usd_per_day_gross": round(gross_day, 2),
@@ -1326,7 +1473,9 @@ def mining_stats():
         return {
             "fleet": fleet,
             "batman_live": batman_live,
-            "batman_verified": _batman_verified(win, fleet),
+            "batman_history": _batman_history(),
+            "batman_verified": _batman_verified(win, fleet,
+                                                _batman_history()),
             "totals": ({"per_day_usd": total_day,
                         "per_week_usd": round(total_day * 7, 2),
                         "per_month_usd": total_month,
