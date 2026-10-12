@@ -133,6 +133,19 @@ data class Earnings(
     val baseRewardsMicroRecent: Long = 0,
     val perModel: List<ModelEarnings> = emptyList(),
     val recent: List<EarningEntry> = emptyList(),
+    val estimates: EarningsEstimates? = null,
+)
+
+/** Estimated returns computed by the bridge from its snapshot ledger of
+ * the lifetime earnings total (realized trailing-window rates, blended).
+ * Doubles are fine here: these are projections, not ledger money. */
+data class EarningsEstimates(
+    val perDayUsd: Double = 0.0,
+    val perWeekUsd: Double = 0.0,
+    val perMonthUsd: Double = 0.0,
+    val method: String? = null,
+    val trackedSinceEpochSec: Double? = null,
+    val basisLabel: String? = null,
 )
 
 data class ModelEarnings(

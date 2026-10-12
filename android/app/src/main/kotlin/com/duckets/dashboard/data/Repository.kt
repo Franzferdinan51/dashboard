@@ -345,6 +345,16 @@ private fun parseEarnings(e: JSONObject): Earnings {
         baseRewardsMicroRecent = e.lng("base_rewards_micro_usd_recent") ?: 0,
         perModel = perModel,
         recent = recent,
+        estimates = e.obj("estimates")?.let { s ->
+            EarningsEstimates(
+                perDayUsd = s.dbl("per_day_usd") ?: 0.0,
+                perWeekUsd = s.dbl("per_week_usd") ?: 0.0,
+                perMonthUsd = s.dbl("per_month_usd") ?: 0.0,
+                method = s.str("method"),
+                trackedSinceEpochSec = s.dbl("tracked_since"),
+                basisLabel = s.obj("basis")?.str("label"),
+            )
+        },
     )
 }
 

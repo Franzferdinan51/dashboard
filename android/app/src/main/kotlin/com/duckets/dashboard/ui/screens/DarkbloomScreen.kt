@@ -29,6 +29,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.duckets.dashboard.data.DarkbloomStats
 import com.duckets.dashboard.data.Earnings
+import com.duckets.dashboard.data.EarningsEstimates
 import com.duckets.dashboard.theme.Muse
 import com.duckets.dashboard.ui.components.CardDivider
 import com.duckets.dashboard.ui.components.CardHeader
@@ -71,6 +72,8 @@ fun DarkbloomScreen(state: DashboardUiState, columns: Int = 1, onRefresh: () -> 
                     val db = ov.darkbloom
                     val e = db.earnings
                     item { EarningsCard(db, e, state.connected) }
+                    val est = e?.estimates
+                    if (est != null) item { EstimatesCard(est) }
                     if (columns >= 2) {
                         if (e != null && e.perModel.isNotEmpty() && e.recent.isNotEmpty()) {
                             item {
@@ -148,6 +151,50 @@ private fun EarningsCard(db: DarkbloomStats, e: Earnings?, connected: Boolean) {
         }
     }
 }
+
+@Composable
+private fun EstimatesCard(est: EarningsEstimates) {
+    MuseCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(20.dp)) {
+            CardHeader("Estimated returns", subtitle = "live · realized rates from the bridge ledger") {
+                StatusChip("LIVE", Muse.Good, pulse = true)
+            }
+            Spacer(Modifier.height(12.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                EstBox(Modifier.weight(1f), "PER DAY", est.perDayUsd)
+                EstBox(Modifier.weight(1f), "PER WEEK", est.perWeekUsd)
+                EstBox(Modifier.weight(1f), "PER MONTH", est.perMonthUsd)
+            }
+            Spacer(Modifier.height(10.dp))
+            val basis = buildString {
+                est.basisLabel?.let { append(it) }
+                est.trackedSinceEpochSec?.let { ts ->
+                    if (isNotEmpty()) append(" · ")
+                    append("tracked since ")
+                    append(fmtTrackedSince(ts))
+                }
+            }
+            if (basis.isNotEmpty()) {
+                Text(basis, style = MaterialTheme.typography.bodySmall, color = Muse.TextDim)
+            }
+            Text("Estimate — moves as real earnings land; includes downtime.",
+                style = MaterialTheme.typography.bodySmall, color = Muse.TextDim)
+        }
+    }
+}
+
+@Composable
+private fun EstBox(modifier: Modifier, label: String, v: Double) {
+    Column(modifier) {
+        Text(label, style = MaterialTheme.typography.labelSmall, color = Muse.TextDim)
+        Text("$" + String.format(java.util.Locale.US, "%.2f", v),
+            style = MaterialTheme.typography.titleLarge, color = Muse.Mist)
+    }
+}
+
+private fun fmtTrackedSince(epochSec: Double): String =
+    java.text.SimpleDateFormat("MMM d, h:mm a", java.util.Locale.US)
+        .format(java.util.Date((epochSec * 1000).toLong()))
 
 @Composable
 private fun PerModelCard(e: Earnings) {
