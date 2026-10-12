@@ -35,6 +35,32 @@ Two parts:
 **Settings**
 - Bridge address and refresh interval (2–30 s)
 
+## v1.2.0
+
+- **MCP server on the bridge** (`POST /mcp`, read-only tools mirroring the
+  REST endpoints) and a **decisions log** of state-change events
+  (`GET /api/decisions`, MCP `decisions` tool, persisted across restarts).
+- **Bridge reliability** — overview sections now build in parallel (worst-case
+  latency ~11 s → ~2 s) with startup cache pre-warming and per-key cache
+  locks; failed fetches are no longer cached for the full TTL; a mid-write
+  Darkbloom state file falls back to the last good snapshot instead of
+  reporting the provider stopped; the daemon PID is verified by process name
+  (PID-reuse safe); earnings refresh every 30 s; per-model earnings no longer
+  double-list base rewards.
+- **App reliability** — HTTP calls are truly cancellable with a hard 12 s
+  call timeout (a wedged request can no longer freeze polling); offline is
+  declared after two consecutive failed polls instead of flapping on one;
+  switching bridge URL fully resets the previous machine's data; polling
+  pauses while the app is backgrounded; empty/error bridge responses can no
+  longer render as a fake machine; money is carried in integer micro-USD
+  end to end.
+- **App correctness & polish** — every card now marks itself offline/last
+  known, not just some; the earnings card no longer fabricates a $0 balance
+  when the ledger is unavailable; About reads the real version from the
+  build; URL validation rejects spaces, bad ports, and paths; scroll
+  positions and unsaved settings drafts survive tab switches and rotation;
+  `allowBackup` is off so the bridge address never leaves the device.
+
 ## v1.1.0 enhancements
 
 - **Adaptive phone + tablet layouts** — phones get bottom navigation and a fluid
@@ -76,10 +102,30 @@ Darkbloom account-earnings API (using the provider's own local auth token,
 which never leaves the Mac).
 
 Endpoints: `/api/health`, `/api/overview`, `/api/system`, `/api/darkbloom`,
-`/api/lmstudio`.
+`/api/lmstudio`, `/api/decisions` (recent state-change events), and `/mcp`
+(a read-only MCP server — see below).
 
 Environment knobs: `--port` (default 8901), `--lm-url` (LM Studio API base),
 `DASHBOARD_MACHINE_NAME` (display name shown in the app).
+
+Logs land in `~/dashboard-bridge/bridge.log` / `bridge.err.log` (no built-in
+rotation; they're small unless something is crash-looping). The decisions
+log lives alongside them as `decisions.jsonl` (capped at the last 1,000
+events, auto-trimmed).
+
+### MCP server + decisions log (bridge 1.2.0)
+
+The bridge also speaks [MCP](https://modelcontextprotocol.io) over
+streamable HTTP at `POST /mcp` (stateless, JSON-RPC 2.0), so any MCP client —
+a local agent, an LLM shell — can query the same data as native tools:
+`health`, `overview`, `system`, `darkbloom`, `lmstudio`, `decisions`.
+Read-only, like the REST API.
+
+A background watcher records state transitions to the decisions log —
+Darkbloom start/stop, earning start/stop, trust-level changes, LM Studio
+up/down, loaded-model changes — so instead of diffing polls you can ask
+"what changed, and when" via `GET /api/decisions?limit=50` or the MCP
+`decisions` tool.
 
 ### 2. Build the app
 

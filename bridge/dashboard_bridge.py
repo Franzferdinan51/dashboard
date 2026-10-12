@@ -10,11 +10,14 @@ Stdlib only. No pip installs. Run:
     python3 dashboard_bridge.py [--port 8901] [--host 0.0.0.0]
 
 Endpoints:
-    GET /api/health    -> {"ok": true, ...}
-    GET /api/overview  -> everything (system + darkbloom + lmstudio)
-    GET /api/system    -> Mac vitals only
-    GET /api/darkbloom -> Darkbloom provider only
-    GET /api/lmstudio  -> LM Studio only
+    GET  /api/health    -> {"ok": true, ...}
+    GET  /api/overview  -> everything (system + darkbloom + lmstudio)
+    GET  /api/system    -> Mac vitals only
+    GET  /api/darkbloom -> Darkbloom provider only
+    GET  /api/lmstudio  -> LM Studio only
+    GET  /api/decisions -> recent state-change events (?limit=50)
+    POST /mcp           -> MCP server (read-only tools: health, overview,
+                           system, darkbloom, lmstudio, decisions)
 
 Data sources (all local, read-only):
   * system    : sysctl / vm_stat / top / df / netstat / ps / pmset
@@ -35,6 +38,8 @@ import threading
 import time
 import urllib.request
 import urllib.error
+import urllib.parse
+from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HOME = os.path.expanduser("~")
@@ -42,7 +47,7 @@ DARKBLOOM_STATE = os.path.join(HOME, ".darkbloom", "daemon-state.json")
 DARKBLOOM_TOKEN = os.path.join(HOME, ".darkbloom", "auth_token")
 LMSTUDIO_KEY = os.path.join(HOME, ".config", "lmstudio", "api_key")
 LMSTUDIO_BASE = "http://127.0.0.1:1234"
-BRIDGE_VERSION = "1.1.0"
+BRIDGE_VERSION = "1.2.0"
 _STARTED_AT = time.time()
 
 # --------------------------------------------------------------------------
@@ -51,18 +56,33 @@ _STARTED_AT = time.time()
 
 _cache = {}
 _cache_lock = threading.Lock()
+_cache_locks = {}
 
 
 def cached(key, ttl, fn):
+    """TTL cache with a per-key build lock (concurrent callers share one
+    build instead of stampeding) and short negative caching: a None result
+    (a failed fetch) is only held for 10s so one blip can't blank data for
+    the full TTL."""
     now = time.time()
     with _cache_lock:
         hit = _cache.get(key)
         if hit and now - hit[0] < ttl:
             return hit[1]
-    val = fn()
-    with _cache_lock:
-        _cache[key] = (now, val)
-    return val
+        lock = _cache_locks.setdefault(key, threading.Lock())
+    with lock:
+        now = time.time()
+        with _cache_lock:
+            hit = _cache.get(key)
+            if hit and now - hit[0] < ttl:
+                return hit[1]
+        val = fn()
+        stamp = time.time()
+        if val is None and ttl > 10:
+            stamp -= ttl - 10  # negative entry expires in ~10s
+        with _cache_lock:
+            _cache[key] = (stamp, val)
+        return val
 
 
 def run(cmd, timeout=6):
@@ -95,7 +115,8 @@ def _cpu_percent():
         user, sysp, idle = (float(x) for x in matches[-1])
         return {"user_pct": user, "sys_pct": sysp, "idle_pct": idle,
                 "used_pct": round(user + sysp, 1)}
-    return {"user_pct": 0.0, "sys_pct": 0.0, "idle_pct": 100.0, "used_pct": 0.0}
+    # Parse failure: nulls, not a plausible-looking 0% lie.
+    return {"user_pct": None, "sys_pct": None, "idle_pct": None, "used_pct": None}
 
 
 def _memory():
@@ -165,7 +186,9 @@ def _network():
     for line in out.splitlines():
         parts = line.split()
         # Name Mtu Network Address Ipkts Ierrs Ibytes Opkts Oerrs Obytes Coll
-        if len(parts) >= 10 and parts[0].startswith("en") and parts[0] not in seen:
+        # en* = physical NICs, utun* = VPN tunnels (incl. Tailscale, which is
+        # the interface the dashboard's own traffic rides).
+        if len(parts) >= 10 and parts[0].startswith(("en", "utun")) and parts[0] not in seen:
             try:
                 total_in += int(parts[6])
                 total_out += int(parts[9])
@@ -285,13 +308,17 @@ def _darkbloom_earnings():
                 model = e.get("model") or "unknown"
                 amt = e.get("amount_micro_usd") or 0
                 if model == "base_reward":
+                    # Broke out separately below; don't also list it as a
+                    # pseudo-model in the per-model breakdown.
                     base_total += amt
+                    continue
                 slot = per_model.setdefault(model, {"jobs": 0, "micro_usd": 0})
                 slot["jobs"] += 1
                 slot["micro_usd"] += amt
             recent = [{
                 "model": e.get("model"),
                 "amount_usd": round((e.get("amount_micro_usd") or 0) / 1e6, 6),
+                "amount_micro_usd": e.get("amount_micro_usd") or 0,
                 "prompt_tokens": e.get("prompt_tokens"),
                 "completion_tokens": e.get("completion_tokens"),
                 "created_at": e.get("created_at"),
@@ -308,16 +335,62 @@ def _darkbloom_earnings():
             }
         except Exception:
             return None
-    return cached("db_earnings", 60, fetch)
+    return cached("db_earnings", 30, fetch)
+
+
+_last_good_darkbloom = None
+
+
+def _darkbloom_default(installed):
+    """Full-schema placeholder used when the daemon state can't be read and
+    no last-good snapshot exists — consumers always see the same key set."""
+    return {
+        "installed": installed, "running": False, "version": None, "pid": None,
+        "uptime_seconds": None, "provider_state_written_at": None,
+        "lifecycle": None, "current_model": None,
+        "trust": {"level": None, "status": None, "reason": None, "path": None,
+                  "app_attest_available": None, "session_expires_at": None},
+        "earning": False, "verification_pending": True,
+        "stats": {"requests_served": None, "tokens_generated": None,
+                  "usage_gaps": None},
+        "capacity": {"total_memory_gb": None, "gpu_active_gb": None,
+                     "gpu_cache_gb": None, "free_for_load_gb": None,
+                     "load_usable_gb": None, "load_headroom_gb": None},
+        "warm_models": [], "advertised_models": [], "slots": [],
+        "resident_models": [],
+        "autopilot": {"phase": None, "enabled": None, "active": None,
+                      "observe_only": None, "paused": None,
+                      "max_model_slots": None},
+        "app_attest": {"attested": None, "key_age_seconds": None,
+                       "last_success_age_seconds": None,
+                       "generations_last_24h": None,
+                       "consecutive_failures": None},
+        "earnings": None,
+    }
 
 
 def darkbloom_stats():
-    try:
-        with open(DARKBLOOM_STATE) as f:
-            d = json.load(f)
-    except Exception:
-        return {"installed": os.path.exists(os.path.join(HOME, ".darkbloom")),
-                "running": False}
+    global _last_good_darkbloom
+    d = None
+    for attempt in range(2):
+        try:
+            with open(DARKBLOOM_STATE) as f:
+                d = json.load(f)
+            break
+        except Exception:
+            # The daemon may be mid-rewrite of its state file; one short
+            # retry, then fall back to the last good snapshot rather than
+            # reporting a healthy provider as stopped.
+            if attempt == 0:
+                time.sleep(0.1)
+    if d is None:
+        if _last_good_darkbloom is not None:
+            stale = dict(_last_good_darkbloom)
+            stale["stale"] = True
+            return stale
+        out = _darkbloom_default(os.path.exists(os.path.join(HOME, ".darkbloom")))
+        out["error"] = "daemon state unreadable"
+        return out
 
     trust = d.get("trust") or {}
     auth = trust.get("authorization") or {}
@@ -333,7 +406,11 @@ def darkbloom_stats():
     if pid:
         try:
             os.kill(int(pid), 0)
-            running = True
+            # kill(pid, 0) only proves the PID is taken — macOS recycles PIDs,
+            # so confirm the process actually is the Darkbloom daemon.
+            comm = run(["ps", "-p", str(int(pid)), "-o", "comm="],
+                       timeout=3).strip().lower()
+            running = "darkbloom" in comm
         except Exception:
             running = False
 
@@ -341,8 +418,8 @@ def darkbloom_stats():
     for r in autopilot.get("resident_models") or []:
         residents.append({
             "model": r.get("model_id"),
-            "resident_gb": round(r.get("resident_gb", 0), 2),
-            "weights_gb": round(r.get("weights_gb", 0), 2),
+            "resident_gb": round(r.get("resident_gb") or 0, 2),
+            "weights_gb": round(r.get("weights_gb") or 0, 2),
             "idle_seconds": r.get("idle_seconds"),
             "resident_seconds": r.get("resident_seconds"),
         })
@@ -350,12 +427,12 @@ def darkbloom_stats():
     earnings = _darkbloom_earnings()
     paid_jobs = (earnings or {}).get("jobs_in_history") or 0
 
-    return {
+    result = {
         "installed": True,
         "running": running,
         "version": d.get("version"),
         "pid": pid,
-        "uptime_seconds": int(time.time() - started) if started else None,
+        "uptime_seconds": int(time.time() - started) if isinstance(started, (int, float)) else None,
         "provider_state_written_at": d.get("written_at"),
         "lifecycle": (d.get("lifecycle") or {}).get("outcome"),
         "current_model": d.get("current_model"),
@@ -409,6 +486,8 @@ def darkbloom_stats():
         },
         "earnings": earnings,
     }
+    _last_good_darkbloom = result
+    return result
 
 
 # --------------------------------------------------------------------------
@@ -446,11 +525,224 @@ def lmstudio_stats():
 
 
 # --------------------------------------------------------------------------
+# decisions — state-change event log
+#
+# A watcher thread samples the same (cached) stats the REST endpoints serve
+# and records timestamped transitions: Darkbloom start/stop, earning
+# start/stop, trust-level changes, LM Studio up/down, loaded-model changes,
+# serving-model changes. Anything (app, agent, cron) can then ask "what
+# changed, and when" via GET /api/decisions or the MCP `decisions` tool
+# instead of diffing snapshots. Persisted as JSONL next to the bridge so the
+# history survives restarts; capped at the most recent _MAX_DECISIONS events.
+# --------------------------------------------------------------------------
+
+_DECISIONS_FILE = os.path.join(HOME, "dashboard-bridge", "decisions.jsonl")
+_MAX_DECISIONS = 1000
+_decisions = []
+_decisions_lock = threading.Lock()
+
+
+def _record_decision(kind, detail=None):
+    ev = {"ts": time.time(), "type": kind, "detail": detail or {}}
+    with _decisions_lock:
+        _decisions.append(ev)
+        if len(_decisions) > _MAX_DECISIONS:
+            del _decisions[:len(_decisions) - _MAX_DECISIONS]
+    try:
+        with open(_DECISIONS_FILE, "a") as f:
+            f.write(json.dumps(ev) + "\n")
+        if os.path.getsize(_DECISIONS_FILE) > 2_000_000:
+            with _decisions_lock:
+                keep = list(_decisions[-500:])
+            with open(_DECISIONS_FILE, "w") as f:
+                for e in keep:
+                    f.write(json.dumps(e) + "\n")
+    except Exception:
+        pass
+
+
+def _load_decisions():
+    try:
+        with open(_DECISIONS_FILE) as f:
+            lines = f.readlines()[-_MAX_DECISIONS:]
+        for ln in lines:
+            try:
+                _decisions.append(json.loads(ln))
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
+def decisions_list(limit=50):
+    limit = max(1, min(int(limit or 50), _MAX_DECISIONS))
+    with _decisions_lock:
+        return list(reversed(_decisions[-limit:]))
+
+
+def _watcher():
+    _record_decision("bridge_started", {"version": BRIDGE_VERSION})
+    prev = None
+    while True:
+        try:
+            db = darkbloom_stats()
+            lm = lmstudio_stats()
+            sig = {
+                "db_running": bool(db.get("running")),
+                "db_earning": bool(db.get("earning")),
+                "trust": (db.get("trust") or {}).get("level"),
+                "lm_reachable": bool(lm.get("reachable")),
+                "lm_loaded": tuple(sorted(
+                    m.get("id") for m in (lm.get("models") or [])
+                    if m.get("state") == "loaded")),
+                "db_model": db.get("current_model"),
+            }
+            if prev is not None:
+                if sig["db_running"] != prev["db_running"]:
+                    _record_decision(
+                        "darkbloom_started" if sig["db_running"] else "darkbloom_stopped")
+                if sig["db_running"] and sig["db_earning"] != prev["db_earning"]:
+                    _record_decision(
+                        "darkbloom_earning_started" if sig["db_earning"]
+                        else "darkbloom_earning_stopped")
+                if sig["trust"] != prev["trust"]:
+                    _record_decision("darkbloom_trust_changed",
+                                     {"from": prev["trust"], "to": sig["trust"]})
+                if sig["lm_reachable"] != prev["lm_reachable"]:
+                    _record_decision(
+                        "lmstudio_up" if sig["lm_reachable"] else "lmstudio_down")
+                if sig["lm_loaded"] != prev["lm_loaded"]:
+                    _record_decision("lmstudio_models_changed",
+                                     {"loaded": list(sig["lm_loaded"])})
+                if sig["db_model"] != prev["db_model"] and sig["db_model"]:
+                    _record_decision("darkbloom_model_changed",
+                                     {"model": sig["db_model"]})
+            prev = sig
+        except Exception:
+            pass
+        time.sleep(15)
+
+
+# --------------------------------------------------------------------------
+# MCP — minimal read-only MCP server (streamable HTTP, stateless)
+#
+# POST /mcp with JSON-RPC 2.0: initialize / ping / tools/list / tools/call.
+# Tools mirror the REST endpoints so any MCP client (Hermes, DuckBot, …)
+# can query live Mac vitals, Darkbloom provider state, LM Studio state,
+# and the decisions log as native tools. Read-only by design.
+# --------------------------------------------------------------------------
+
+MCP_PROTOCOL_VERSION = "2025-03-26"
+
+_MCP_TOOLS = [
+    {"name": "health",
+     "description": "Dashboard bridge liveness: ok flag, version, uptime, machine name.",
+     "inputSchema": {"type": "object", "properties": {}}},
+    {"name": "overview",
+     "description": "Everything at once: Mac system vitals, Darkbloom provider "
+                    "state + earnings, and LM Studio state.",
+     "inputSchema": {"type": "object", "properties": {}}},
+    {"name": "system",
+     "description": "Mac vitals: CPU, memory, swap, disks, network rates, "
+                    "thermal state, top processes.",
+     "inputSchema": {"type": "object", "properties": {}}},
+    {"name": "darkbloom",
+     "description": "Darkbloom provider: running/earning flags, trust level, "
+                    "warm models, capacity, App Attest status, and the "
+                    "earnings ledger summary (balance, paid jobs, per-model, "
+                    "recent jobs). The ledger is the ground truth for earning.",
+     "inputSchema": {"type": "object", "properties": {}}},
+    {"name": "lmstudio",
+     "description": "LM Studio: API reachability and model library with "
+                    "per-model state (loaded / not-loaded).",
+     "inputSchema": {"type": "object", "properties": {}}},
+    {"name": "decisions",
+     "description": "Recent state-change events (newest first): Darkbloom "
+                    "start/stop, earning start/stop, trust changes, LM Studio "
+                    "up/down, model changes, bridge starts.",
+     "inputSchema": {"type": "object", "properties": {
+         "limit": {"type": "integer", "default": 50, "minimum": 1, "maximum": 200}}}},
+]
+
+
+def _health_obj():
+    return {"ok": True, "service": "dashboard-bridge",
+            "time": time.time(), "version": BRIDGE_VERSION,
+            "uptime_seconds": int(time.time() - _STARTED_AT),
+            "machine": os.environ.get("DASHBOARD_MACHINE_NAME") or "Mac Studio"}
+
+
+_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="bridge")
+
+
+def _overview_obj():
+    # Build the three sections concurrently: sequentially they can stack to
+    # ~11s (top's 2s + a cold earnings call + a cold LM Studio call), which
+    # exceeds the phone's read timeout and flares false "offline" states.
+    f_sys = _pool.submit(system_stats)
+    f_db = _pool.submit(darkbloom_stats)
+    f_lm = _pool.submit(lmstudio_stats)
+    return {"generated_at": time.time(),
+            "bridge": {"version": BRIDGE_VERSION,
+                       "uptime_seconds": int(time.time() - _STARTED_AT)},
+            "system": f_sys.result(),
+            "darkbloom": f_db.result(),
+            "lmstudio": f_lm.result()}
+
+
+def _mcp_call_tool(name, args):
+    if name == "health":
+        return _health_obj()
+    if name == "overview":
+        return _overview_obj()
+    if name == "system":
+        return {"generated_at": time.time(), "system": system_stats()}
+    if name == "darkbloom":
+        return {"generated_at": time.time(), "darkbloom": darkbloom_stats()}
+    if name == "lmstudio":
+        return {"generated_at": time.time(), "lmstudio": lmstudio_stats()}
+    if name == "decisions":
+        return {"decisions": decisions_list((args or {}).get("limit", 50))}
+    raise ValueError(f"unknown tool: {name}")
+
+
+def _mcp_handle(payload):
+    """Returns (http_status, response_obj_or_None_for_notifications)."""
+    method = payload.get("method")
+    mid = payload.get("id")
+    params = payload.get("params") or {}
+    if method == "initialize":
+        return 200, {"jsonrpc": "2.0", "id": mid, "result": {
+            "protocolVersion": params.get("protocolVersion") or MCP_PROTOCOL_VERSION,
+            "capabilities": {"tools": {"listChanged": False}},
+            "serverInfo": {"name": "dashboard-bridge", "version": BRIDGE_VERSION}}}
+    if method == "ping":
+        return 200, {"jsonrpc": "2.0", "id": mid, "result": {}}
+    if method == "tools/list":
+        return 200, {"jsonrpc": "2.0", "id": mid, "result": {"tools": _MCP_TOOLS}}
+    if method == "tools/call":
+        try:
+            data = _mcp_call_tool(params.get("name"), params.get("arguments") or {})
+            return 200, {"jsonrpc": "2.0", "id": mid, "result": {
+                "content": [{"type": "text", "text": json.dumps(data)}],
+                "structuredContent": data, "isError": False}}
+        except Exception as e:
+            return 200, {"jsonrpc": "2.0", "id": mid, "result": {
+                "content": [{"type": "text", "text": str(e)[:200]}], "isError": True}}
+    if mid is None:
+        return 202, None  # notification (e.g. notifications/initialized)
+    return 200, {"jsonrpc": "2.0", "id": mid,
+                 "error": {"code": -32601, "message": f"method not found: {method}"}}
+
+
+# --------------------------------------------------------------------------
 # http server
 # --------------------------------------------------------------------------
 
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
+    server_version = "dashboard-bridge"
+    sys_version = ""
 
     def log_message(self, fmt, *args):  # quiet
         pass
@@ -465,7 +757,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         if use_gzip:
             self.send_header("Content-Encoding", "gzip")
         self.end_headers()
@@ -474,37 +766,85 @@ class Handler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type, Mcp-Session-Id, MCP-Protocol-Version")
         self.send_header("Content-Length", "0")
         self.end_headers()
+
+    def _send_raw(self, body, code=200, content_type="application/json"):
+        self.send_response(code)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.end_headers()
+        if body:
+            self.wfile.write(body)
 
     def do_GET(self):
         try:
             path = self.path.split("?")[0].rstrip("/") or "/"
-            if path in ("/", "/api/health"):
-                self._send({"ok": True, "service": "dashboard-bridge",
-                            "time": time.time(), "version": BRIDGE_VERSION,
-                            "uptime_seconds": int(time.time() - _STARTED_AT),
-                            "machine": os.environ.get("DASHBOARD_MACHINE_NAME") or "Mac Studio"})
+            if path == "/mcp":
+                self._send({"error": "MCP uses POST (streamable HTTP)"}, 405)
+            elif path in ("/", "/api/health"):
+                self._send(_health_obj())
             elif path == "/api/system":
                 self._send({"generated_at": time.time(), "system": system_stats()})
             elif path == "/api/darkbloom":
                 self._send({"generated_at": time.time(), "darkbloom": darkbloom_stats()})
             elif path == "/api/lmstudio":
                 self._send({"generated_at": time.time(), "lmstudio": lmstudio_stats()})
+            elif path == "/api/decisions":
+                qs = urllib.parse.urlparse(self.path).query
+                limit = urllib.parse.parse_qs(qs).get("limit", ["50"])[0]
+                self._send({"generated_at": time.time(),
+                            "decisions": decisions_list(int(limit) if str(limit).isdigit() else 50)})
             elif path == "/api/overview":
-                self._send({
-                    "generated_at": time.time(),
-                    "bridge": {"version": BRIDGE_VERSION,
-                               "uptime_seconds": int(time.time() - _STARTED_AT)},
-                    "system": system_stats(),
-                    "darkbloom": darkbloom_stats(),
-                    "lmstudio": lmstudio_stats(),
-                })
+                self._send(_overview_obj())
             else:
                 self._send({"error": "not found"}, 404)
-        except BrokenPipeError:
+        except ConnectionError:
+            pass
+        except Exception as e:
+            try:
+                self._send({"error": str(e)[:200]}, 500)
+            except Exception:
+                pass
+
+    def do_POST(self):
+        try:
+            path = self.path.split("?")[0].rstrip("/") or "/"
+            if path != "/mcp":
+                self._send({"error": "not found"}, 404)
+                return
+            length = int(self.headers.get("Content-Length") or 0)
+            raw = self.rfile.read(length) if length > 0 else b""
+            try:
+                payload = json.loads(raw.decode("utf-8")) if raw else {}
+            except Exception:
+                self._send_raw(json.dumps({"jsonrpc": "2.0", "id": None, "error": {
+                    "code": -32700, "message": "parse error"}}).encode("utf-8"), 400)
+                return
+            if isinstance(payload, list):  # JSON-RPC batch
+                responses = []
+                status = 200
+                for item in payload:
+                    st, resp = _mcp_handle(item if isinstance(item, dict) else {})
+                    if resp is not None:
+                        responses.append(resp)
+                        status = st
+                if responses:
+                    self._send(responses, status)
+                else:
+                    self._send_raw(b"", 202)
+                return
+            status, resp = _mcp_handle(payload if isinstance(payload, dict) else {})
+            if resp is None:
+                self._send_raw(b"", 202)
+            else:
+                self._send(resp, status)
+        except ConnectionError:
             pass
         except Exception as e:
             try:
@@ -519,6 +859,12 @@ def main():
     ap.add_argument("--host", default="0.0.0.0")
     args = ap.parse_args()
     server = ThreadingHTTPServer((args.host, args.port), Handler)
+    _load_decisions()
+    threading.Thread(target=_watcher, daemon=True, name="decisions-watcher").start()
+    # Pre-warm the caches off-thread so the first requests don't pay the
+    # ~15s system_profiler / cold-API costs inside a request.
+    for fn in (_static_info, system_stats, darkbloom_stats, lmstudio_stats):
+        _pool.submit(fn)
     print(f"dashboard-bridge listening on {args.host}:{args.port}", flush=True)
     try:
         server.serve_forever()
