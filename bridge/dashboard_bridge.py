@@ -59,7 +59,7 @@ DARKBLOOM_STATE = os.path.join(HOME, ".darkbloom", "daemon-state.json")
 DARKBLOOM_TOKEN = os.path.join(HOME, ".darkbloom", "auth_token")
 LMSTUDIO_KEY = os.path.join(HOME, ".config", "lmstudio", "api_key")
 LMSTUDIO_BASE = "http://127.0.0.1:1234"
-BRIDGE_VERSION = "1.10.1"
+BRIDGE_VERSION = "1.10.2"
 _STARTED_AT = time.time()
 
 # --------------------------------------------------------------------------
@@ -123,9 +123,26 @@ def cached(key, ttl, fn, swr=False):
         return val
 
 
+def _invalidate(key):
+    """Drop a cached entry so the next read rebuilds it. Waits out any
+    in-flight build for the key first: builders write their result while
+    holding the per-key lock, so popping under that same lock guarantees
+    a build that STARTED before the invalidation can't write its (now
+    stale) result back over the pop afterwards."""
+    lock = _cache_locks.get(key)
+    if lock is not None:
+        with lock:
+            with _cache_lock:
+                _cache.pop(key, None)
+    else:
+        with _cache_lock:
+            _cache.pop(key, None)
+
+
 def run(cmd, timeout=6):
     try:
-        out = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        out = subprocess.run(cmd, capture_output=True, text=True,
+                             errors="replace", timeout=timeout)
         return out.stdout or ""
     except Exception:
         return ""
@@ -299,7 +316,9 @@ def _static_info():
             "gpu_cores": gpu_cores,
             "macos_version": os_ver.group(1) if os_ver else None,
         }
-    return cached("static", 3600, build)
+    # SWR like the other slow probes: the hourly system_profiler rebuild
+    # must never land inside a request's latency.
+    return cached("static", 3600, build, swr=True)
 
 
 def system_stats():
@@ -1014,7 +1033,7 @@ def _watcher():
                 "trust": (db.get("trust") or {}).get("level"),
                 "lm_reachable": bool(lm.get("reachable")),
                 "lm_loaded": tuple(sorted(
-                    m.get("id") for m in (lm.get("models") or [])
+                    m.get("id") or "" for m in (lm.get("models") or [])
                     if m.get("state") == "loaded")),
                 "db_model": db.get("current_model"),
             }
@@ -1351,8 +1370,13 @@ def _batman_history():
         try:
             with open(BATMAN_LEDGER) as f:
                 for line in f:
-                    t, h = line.strip().split(",")
-                    pts[float(t)] = float(h)
+                    # Per-line guard: one torn write (bridge killed
+                    # mid-append) must not discard the whole ledger.
+                    try:
+                        t, h = line.strip().split(",")
+                        pts[float(t)] = float(h)
+                    except Exception:
+                        continue
         except Exception:
             pass
         if len(pts) < 2:
@@ -1513,7 +1537,7 @@ def _run_full(cmd, timeout=30):
     run() above can't serve actions — it swallows the exit code."""
     try:
         p = subprocess.run(cmd, capture_output=True, text=True,
-                           timeout=timeout)
+                           errors="replace", timeout=timeout)
         return p.returncode, p.stdout or "", p.stderr or ""
     except Exception as e:
         return -1, "", str(e)
@@ -1807,6 +1831,10 @@ def _mcp_handle(payload):
     method = payload.get("method")
     mid = payload.get("id")
     params = payload.get("params") or {}
+    if not isinstance(params, dict):
+        # JSON-RPC permits positional (array) params; this server takes
+        # none positionally, and .get() on a list would throw a bare 500.
+        params = {}
     if method == "initialize":
         return 200, {"jsonrpc": "2.0", "id": mid, "result": {
             "protocolVersion": params.get("protocolVersion") or MCP_PROTOCOL_VERSION,
@@ -1818,7 +1846,9 @@ def _mcp_handle(payload):
         return 200, {"jsonrpc": "2.0", "id": mid, "result": {"tools": _MCP_TOOLS}}
     if method == "tools/call":
         try:
-            data = _mcp_call_tool(params.get("name"), params.get("arguments") or {})
+            args = params.get("arguments")
+            data = _mcp_call_tool(params.get("name"),
+                                  args if isinstance(args, dict) else {})
             return 200, {"jsonrpc": "2.0", "id": mid, "result": {
                 "content": [{"type": "text", "text": json.dumps(data)}],
                 "structuredContent": data, "isError": False}}
@@ -1861,6 +1891,11 @@ class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     server_version = "dashboard-bridge"
     sys_version = ""
+    # Socket timeout (http.server applies it to the connection): a client
+    # that connects and then stalls mid-request can't pin a handler
+    # thread forever. Idle keep-alive connections simply get dropped
+    # between requests, which clients already handle by reconnecting.
+    timeout = 30
 
     def log_message(self, fmt, *args):  # quiet
         pass
@@ -1925,9 +1960,15 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(actions_stats())
             elif path == "/api/decisions":
                 qs = urllib.parse.urlparse(self.path).query
-                limit = urllib.parse.parse_qs(qs).get("limit", ["50"])[0]
+                raw_limit = urllib.parse.parse_qs(qs).get("limit", ["50"])[0]
+                try:
+                    limit = int(raw_limit)
+                except Exception:
+                    # str.isdigit() was not enough: it accepts characters
+                    # like '²' that int() then rejects with a 500.
+                    limit = 50
                 self._send({"generated_at": time.time(),
-                            "decisions": decisions_list(int(limit) if str(limit).isdigit() else 50)})
+                            "decisions": decisions_list(limit)})
             elif path == "/api/overview":
                 self._send(_overview_obj())
             else:
@@ -1943,6 +1984,20 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         try:
             path = self.path.split("?")[0].rstrip("/") or "/"
+            # Validate the declared body size once, up front: a garbage
+            # Content-Length used to raise a bare 500, and a huge one made
+            # rfile.read() block a handler thread until the client got
+            # around to sending that many bytes. Legit bodies here are a
+            # few hundred bytes (an action) to a few KB (JSON-RPC).
+            try:
+                declared = int(self.headers.get("Content-Length") or 0)
+            except (TypeError, ValueError):
+                declared = -1
+            if declared < 0 or declared > 1_000_000:
+                self.close_connection = True  # body unread/unreadable
+                self._send({"ok": False,
+                            "error": "invalid or oversized request body"}, 400)
+                return
             if path == "/api/action":
                 length = int(self.headers.get("Content-Length") or 0)
                 raw = self.rfile.read(length) if length > 0 else b""
@@ -1965,8 +2020,10 @@ class Handler(BaseHTTPRequestHandler):
                 # cached snapshot so the app's post-action refresh is never
                 # served the pre-action picture (a just-loaded model missing
                 # its Unload button, or a just-unloaded one still listed).
-                with _cache_lock:
-                    _cache.pop("actions", None)
+                # _invalidate (not a bare pop): an actions rebuild that
+                # started before this action could otherwise write its
+                # pre-action snapshot back over the pop.
+                _invalidate("actions")
                 if code == 400:
                     body = {"ok": False, "error": message}
                 else:
@@ -1982,6 +2039,10 @@ class Handler(BaseHTTPRequestHandler):
                     after()
                 return
             if path != "/mcp":
+                # The request body (if any) is never read on this path —
+                # don't let its bytes be parsed as the next request on a
+                # keep-alive connection.
+                self.close_connection = True
                 self._send({"error": "not found"}, 404)
                 return
             length = int(self.headers.get("Content-Length") or 0)
