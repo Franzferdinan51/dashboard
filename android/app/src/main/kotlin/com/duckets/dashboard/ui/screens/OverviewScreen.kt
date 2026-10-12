@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.MonetizationOn
@@ -74,6 +75,8 @@ fun OverviewScreen(state: DashboardUiState, columns: Int, onRefresh: () -> Unit 
                 item { ConnectingCard(state) }
             } else {
                 item { GaugeCard(state, ov) }
+                item { CombinedProfitCard(state, ov) }
+                item { MiningStrip(state) }
                 if (columns >= 2) {
                     // Tablet: earnings beside network, LM Studio full width below.
                     item {
@@ -383,4 +386,100 @@ private fun LmStudioCard(ov: Overview, connected: Boolean) {
 private fun BoxDot(color: androidx.compose.ui.graphics.Color) {
     androidx.compose.foundation.layout.Box(Modifier.size(8.dp)
         .background(color, androidx.compose.foundation.shape.CircleShape))
+}
+
+/**
+ * Combined profit summary: Darkbloom's realized estimate (bridge ledger)
+ * plus Batman-3's verified mining (miner log × live network). Same math
+ * as the Earnings tab, surfaced here so the money picture is on the
+ * first screen.
+ */
+@Composable
+private fun CombinedProfitCard(state: DashboardUiState, ov: Overview) {
+    val dbDay = ov.darkbloom.earnings?.estimates?.perDayUsd
+    val mineDay = state.mining?.batmanVerified?.usdPerDayNet
+    MuseCard(Modifier.fillMaxWidth(), hero = true) {
+        Column(Modifier.padding(20.dp)) {
+            CardHeader("Combined profit", subtitle = "Darkbloom + mining · both computed by the bridge")
+            Spacer(Modifier.height(10.dp))
+            if (dbDay == null && mineDay == null) {
+                Text("Waiting on earnings data…",
+                    style = MaterialTheme.typography.bodyMedium, color = Muse.TextDim)
+            } else {
+                val day = (dbDay ?: 0.0) + (mineDay ?: 0.0)
+                Text(usdD(day) + " /day",
+                    style = MaterialTheme.typography.headlineLarge, color = Muse.Mist)
+                Spacer(Modifier.height(10.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    MiniStat("Per week", usdD(day * 7), Modifier.weight(1f))
+                    MiniStat("Per month", usdD(day * 30), Modifier.weight(1f))
+                    MiniStat("Darkbloom balance", usdD(ov.darkbloom.earnings?.balanceUsd, 3), Modifier.weight(1f))
+                }
+                Spacer(Modifier.height(8.dp))
+                KeyValueRow("Darkbloom (realized, bridge ledger)",
+                    if (dbDay != null) "${usdD(dbDay)}/day" else "—")
+                KeyValueRow("Mining — Batman-3 (verified, miner log)",
+                    if (mineDay != null) "${usdD(mineDay)}/day" else "—")
+                if (dbDay != null && mineDay != null && day > 0) {
+                    KeyValueRow("Split",
+                        "Darkbloom ${Math.round(dbDay / day * 100)}% · mining ${Math.round(mineDay / day * 100)}%")
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Mining at a glance for the overview: Batman-3's verified net rate,
+ * live hashrate, and the basis it was computed from. Full detail lives
+ * on the Mining tab.
+ */
+@Composable
+private fun MiningStrip(state: DashboardUiState) {
+    val ver = state.mining?.batmanVerified
+    val live = state.mining?.batmanLive
+    MuseCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(20.dp)) {
+            CardHeader("Mining — Batman-3", subtitle = "verified from the miner's own log") {
+                StatusChip(
+                    when {
+                        live == null -> "WAITING"
+                        live.running -> "MINER RUNNING"
+                        else -> "MINER STOPPED"
+                    },
+                    when {
+                        live == null -> Muse.TextDim
+                        live.running -> Muse.Good
+                        else -> Muse.Bad
+                    },
+                )
+            }
+            Spacer(Modifier.height(10.dp))
+            if (ver == null) {
+                Text("Waiting for mining data from the bridge…",
+                    style = MaterialTheme.typography.bodyMedium, color = Muse.TextDim)
+            } else {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Bolt, null, tint = Muse.Warn, modifier = Modifier.size(28.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Column {
+                        Text((ver.usdPerDayNet?.let { usdD(it) } ?: "—") + " /day net",
+                            style = MaterialTheme.typography.headlineMedium, color = Muse.Mist,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text("${ver.prlPerDayGross ?: "—"} PRL/day · ${usdD(ver.usdPerDayGross)} gross",
+                            style = MaterialTheme.typography.bodySmall, color = Muse.TextDim)
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                KeyValueRow("Hashrate now",
+                    live?.hashrateThs?.let { "$it TH/s" } ?: "—")
+                KeyValueRow("Hashrate basis",
+                    "${ver.hashrateBasisThs ?: "—"} TH/s (${ver.hashrateBasis ?: "miner log"})")
+                KeyValueRow("Verified / week · / month",
+                    "${usdD(ver.usdPerWeekNet)} · ${usdD(ver.usdPerMonthNet)}")
+                KeyValueRow("PRL price",
+                    "${usdD(ver.priceUsd, 2)} (${ver.priceSource ?: "—"})")
+            }
+        }
+    }
 }
