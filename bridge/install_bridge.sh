@@ -19,6 +19,7 @@ fi
 
 mkdir -p "$DEST_DIR" "$HOME/Library/LaunchAgents"
 cp "$SRC_DIR/dashboard_bridge.py" "$DEST_DIR/dashboard_bridge.py"
+cp "$SRC_DIR/web_dashboard.html" "$DEST_DIR/web_dashboard.html"
 # The plist is a template: fill in this user's home directory.
 sed "s|__HOME__|$HOME|g" "$SRC_DIR/com.duckets.dashboard-bridge.plist" > "$PLIST"
 

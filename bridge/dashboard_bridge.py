@@ -10,6 +10,7 @@ Stdlib only. No pip installs. Run:
     python3 dashboard_bridge.py [--port 8901] [--host 0.0.0.0]
 
 Endpoints:
+    GET  /              -> detailed web dashboard (web_dashboard.html)
     GET  /api/health    -> {"ok": true, ...}
     GET  /api/overview  -> everything (system + darkbloom + lmstudio)
     GET  /api/system    -> Mac vitals only
@@ -48,7 +49,7 @@ DARKBLOOM_STATE = os.path.join(HOME, ".darkbloom", "daemon-state.json")
 DARKBLOOM_TOKEN = os.path.join(HOME, ".darkbloom", "auth_token")
 LMSTUDIO_KEY = os.path.join(HOME, ".config", "lmstudio", "api_key")
 LMSTUDIO_BASE = "http://127.0.0.1:1234"
-BRIDGE_VERSION = "1.2.1"
+BRIDGE_VERSION = "1.3.0"
 _STARTED_AT = time.time()
 
 # --------------------------------------------------------------------------
@@ -828,6 +829,28 @@ def _mcp_handle(payload):
 # http server
 # --------------------------------------------------------------------------
 
+_web_cache = {"mtime": 0.0, "body": None}
+
+
+def _web_page():
+    """The detailed web dashboard, served from web_dashboard.html next to
+    this script (installed alongside it). Re-read when the file changes;
+    a placeholder page if the file is missing."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "web_dashboard.html")
+    try:
+        mtime = os.path.getmtime(path)
+        if _web_cache["body"] is None or mtime != _web_cache["mtime"]:
+            with open(path, "rb") as f:
+                _web_cache["body"] = f.read()
+            _web_cache["mtime"] = mtime
+        return _web_cache["body"]
+    except Exception:
+        return (b"<!DOCTYPE html><title>Dashboard</title>"
+                b"<p>web_dashboard.html is missing next to the bridge. "
+                b"The JSON API is at /api/overview.</p>")
+
+
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     server_version = "dashboard-bridge"
@@ -876,7 +899,11 @@ class Handler(BaseHTTPRequestHandler):
             path = self.path.split("?")[0].rstrip("/") or "/"
             if path == "/mcp":
                 self._send({"error": "MCP uses POST (streamable HTTP)"}, 405)
-            elif path in ("/", "/api/health"):
+            elif path in ("/", "/dashboard"):
+                self._send_raw(_web_page(), 200, "text/html; charset=utf-8")
+            elif path == "/favicon.ico":
+                self._send_raw(b"", 204, "image/x-icon")
+            elif path == "/api/health":
                 self._send(_health_obj())
             elif path == "/api/system":
                 self._send({"generated_at": time.time(), "system": system_stats()})
