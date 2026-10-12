@@ -206,6 +206,7 @@ data class MiningData(
     val totalPerMonthUsd: Double? = null,
     val totalPerYearUsd: Double? = null,
     val batmanLive: BatmanLive? = null,
+    val batmanVerified: BatmanVerified? = null,
 )
 
 data class MiningCoin(
@@ -271,4 +272,24 @@ data class WinDisk(
     val totalBytes: Long = 0,
     val freeBytes: Long = 0,
     val usedPct: Double = 0.0,
+)
+
+/** Verified Batman-3 Pearl revenue, computed by the bridge from the
+ * rig's live hashrate × live network emission × live PRL price, less
+ * the pool fee. Kryptex's own claim is carried only for comparison. */
+data class BatmanVerified(
+    val hashrateBasisThs: Double? = null,
+    val hashrateBasis: String? = null,
+    val prlPerDayGross: Double? = null,
+    val usdPerDayGross: Double? = null,
+    val usdPerDayNet: Double? = null,
+    val usdPerWeekNet: Double? = null,
+    val usdPerMonthNet: Double? = null,
+    val kryptexClaimPerDayUsd: Double? = null,
+    val deltaVsClaimPct: Double? = null,
+    val priceUsd: Double? = null,
+    val priceSource: String? = null,
+    val nethashThs: Double? = null,
+    val usdPerThDay: Double? = null,
+    val poolFeePct: Double? = null,
 )

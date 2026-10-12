@@ -443,6 +443,8 @@ private fun parseMining(m: JSONObject): MiningData {
     }
     val totals = m.obj("totals")
     val live = m.obj("batman_live")
+    val ver = m.obj("batman_verified")
+    val vnet = ver?.obj("network")
     return MiningData(
         fleetAsOfEpochSec = fleet?.dbl("as_of"),
         fleetSource = fleet?.str("source"),
@@ -451,6 +453,24 @@ private fun parseMining(m: JSONObject): MiningData {
         totalPerWeekUsd = totals?.dbl("per_week_usd"),
         totalPerMonthUsd = totals?.dbl("per_month_usd"),
         totalPerYearUsd = totals?.dbl("per_year_usd"),
+        batmanVerified = ver?.let {
+            BatmanVerified(
+                hashrateBasisThs = it.dbl("hashrate_basis_ths"),
+                hashrateBasis = it.str("hashrate_basis"),
+                prlPerDayGross = it.dbl("prl_per_day_gross"),
+                usdPerDayGross = it.dbl("usd_per_day_gross"),
+                usdPerDayNet = it.dbl("usd_per_day_net"),
+                usdPerWeekNet = it.dbl("usd_per_week_net"),
+                usdPerMonthNet = it.dbl("usd_per_month_net"),
+                kryptexClaimPerDayUsd = it.dbl("kryptex_claim_per_day_usd"),
+                deltaVsClaimPct = it.dbl("delta_vs_claim_pct"),
+                priceUsd = vnet?.dbl("price_usd"),
+                priceSource = vnet?.str("price_source"),
+                nethashThs = vnet?.dbl("nethash_ths"),
+                usdPerThDay = vnet?.dbl("usd_per_th_day"),
+                poolFeePct = vnet?.dbl("pool_fee_pct"),
+            )
+        },
         batmanLive = live?.let {
             BatmanLive(
                 running = it.bool("running") ?: false,
