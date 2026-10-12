@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MonetizationOn
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.WarningAmber
@@ -80,6 +81,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.duckets.dashboard.theme.Muse
 import com.duckets.dashboard.ui.components.PulseDot
+import com.duckets.dashboard.ui.screens.ActionsScreen
 import com.duckets.dashboard.ui.screens.DarkbloomScreen
 import com.duckets.dashboard.ui.screens.EarningsScreen
 import com.duckets.dashboard.ui.screens.MiningScreen
@@ -96,6 +98,7 @@ enum class Tab(val label: String, val icon: ImageVector) {
     Darkbloom("Darkbloom", Icons.Filled.MonetizationOn),
     Mining("Mining", Icons.Filled.Bolt),
     Earnings("Earnings", Icons.Filled.AccountBalanceWallet),
+    Actions("Actions", Icons.Filled.PlayArrow),
     Windows("Windows", Icons.Filled.Computer),
     Settings("Settings", Icons.Filled.Settings),
 }
@@ -108,7 +111,7 @@ fun DashboardRoot(windowSizeClass: WindowSizeClass) {
     var tabName by rememberSaveable { mutableStateOf(Tab.Overview.name) }
     val tab = runCatching { Tab.valueOf(tabName) }.getOrDefault(Tab.Overview)
     // Portrait phone nav: a slim bar (current section + Menu) and a
-    // hamburger sheet with every destination — seven items in a bottom
+    // hamburger sheet with every destination — eight items in a bottom
     // bar was too crowded to read or tap.
     var menuOpen by remember { mutableStateOf(false) }
 
@@ -127,6 +130,12 @@ fun DashboardRoot(windowSizeClass: WindowSizeClass) {
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    // Actions state is NOT on the 5s poll: fetch it when the tab opens
+    // (and the VM refreshes it after every action the user fires).
+    LaunchedEffect(tab) {
+        if (tab == Tab.Actions) vm.refreshActions()
+    }
+
     // List scroll positions survive tab switches (AnimatedContent disposes
     // off-screen tabs, so the states live here, above it).
     val overviewListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
@@ -134,6 +143,7 @@ fun DashboardRoot(windowSizeClass: WindowSizeClass) {
     val darkbloomListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
     val miningListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
     val earningsListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
+    val actionsListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
     val windowsListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
     val settingsListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
 
@@ -201,7 +211,7 @@ fun DashboardRoot(windowSizeClass: WindowSizeClass) {
                         containerColor = androidx.compose.ui.graphics.Color.Transparent,
                         modifier = Modifier.padding(top = 8.dp),
                     ) {
-                        // Seven destinations overflow short landscape
+                        // Eight destinations overflow short landscape
                         // screens (720dp phones): the rail scrolls.
                         Column(
                             Modifier.verticalScroll(rememberScrollState()),
@@ -240,6 +250,7 @@ fun DashboardRoot(windowSizeClass: WindowSizeClass) {
                             Tab.Darkbloom -> DarkbloomScreen(state, columns, onRefresh = { vm.refreshNow() }, listState = darkbloomListState)
                             Tab.Mining -> MiningScreen(state, columns, onRefresh = { vm.refreshNow() }, listState = miningListState)
                             Tab.Earnings -> EarningsScreen(state, columns, onRefresh = { vm.refreshNow() }, listState = earningsListState)
+                            Tab.Actions -> ActionsScreen(state, vm, columns, listState = actionsListState)
                             Tab.Windows -> WindowsScreen(state, columns, onRefresh = { vm.refreshNow() }, listState = windowsListState)
                             Tab.Settings -> SettingsScreen(state, vm, columns, listState = settingsListState)
                         }

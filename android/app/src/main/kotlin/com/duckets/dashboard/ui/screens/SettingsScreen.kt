@@ -179,7 +179,7 @@ fun SettingsScreen(state: DashboardUiState, vm: DashboardViewModel, columns: Int
                         KeyValueRow("Bridge", state.bridgeUrl)
                         KeyValueRow("Data", "System vitals · Darkbloom · LM Studio")
                         KeyValueRow("Layout", if (columns >= 2) "Tablet (rail, 2 columns)" else "Phone (bottom nav)")
-                        KeyValueRow("Privacy", "Read-only. Nothing leaves your tailnet/LAN.")
+                        KeyValueRow("Privacy", "Talks only to your bridge on your tailnet/LAN. The Actions tab can run commands on your own machines.")
                         Spacer(Modifier.height(8.dp))
                         Text("Earnings come from Darkbloom's account ledger — the same numbers behind the web console. Only settled data is shown; estimates are not.",
                             style = MaterialTheme.typography.bodySmall, color = Muse.TextFaint)
