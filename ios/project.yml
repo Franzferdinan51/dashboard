@@ -1,0 +1,36 @@
+name: Dashboard
+options:
+  bundleIdPrefix: com.duckets
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+targets:
+  Dashboard:
+    type: application
+    platform: iOS
+    sources:
+      - Dashboard
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.duckets.dashboard
+        PRODUCT_NAME: Dashboard
+        SWIFT_VERSION: "5.9"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CURRENT_PROJECT_VERSION: 1
+        MARKETING_VERSION: "1.0.0"
+    info:
+      path: Dashboard/Info.plist
+      properties:
+        CFBundleDisplayName: Dashboard
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        # The app talks plain HTTP to the owner's own bridge on his
+        # tailnet/LAN (same choice as the Android app's cleartext config).
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
