@@ -40,7 +40,7 @@ import com.duckets.dashboard.vm.DashboardUiState
 fun WindowsScreen(state: DashboardUiState, columns: Int = 1, onRefresh: () -> Unit = {}, modifier: Modifier = Modifier, listState: LazyListState = rememberLazyListState()) {
     val hPad = if (columns >= 2) 24.dp else 16.dp
     val maxW = if (columns >= 2) 1080.dp else 720.dp
-    PullToRefreshBox(isRefreshing = state.isRefreshing, onRefresh = onRefresh, modifier = modifier.fillMaxSize()) {
+    PullToRefreshBox(isRefreshing = state.isPullRefreshing, onRefresh = onRefresh, modifier = modifier.fillMaxSize()) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
             LazyColumn(
                 Modifier.fillMaxSize().widthIn(max = maxW).padding(horizontal = hPad),

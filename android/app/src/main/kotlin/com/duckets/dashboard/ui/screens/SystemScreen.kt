@@ -50,7 +50,7 @@ fun SystemScreen(state: DashboardUiState, columns: Int = 1, onRefresh: () -> Uni
     val ov = state.overview
     val hPad = if (columns >= 2) 24.dp else 16.dp
     val maxW = if (columns >= 2) 1080.dp else 720.dp
-    PullToRefreshBox(isRefreshing = state.isRefreshing, onRefresh = onRefresh, modifier = modifier.fillMaxSize()) {
+    PullToRefreshBox(isRefreshing = state.isPullRefreshing, onRefresh = onRefresh, modifier = modifier.fillMaxSize()) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
             LazyColumn(
                 Modifier.fillMaxSize().widthIn(max = maxW).padding(horizontal = hPad),
@@ -123,7 +123,7 @@ private fun ProcessorCard(sys: SystemStats, state: DashboardUiState) {
             KeyValueRow("Used", fmtPct(sys.cpu.usedPct, 1))
             KeyValueRow("CPU cores", "${sys.cpuCores ?: "—"}")
             KeyValueRow("GPU cores", "${sys.gpuCores ?: "—"}")
-            KeyValueRow("Load average", sys.loadAvg.joinToString("  ") { String.format("%.2f", it) }.ifBlank { "—" })
+            KeyValueRow("Load average", sys.loadAvg.joinToString("  ") { String.format(java.util.Locale.US, "%.2f", it) }.ifBlank { "—" })
             KeyValueRow("Uptime", fmtDuration(sys.uptimeSeconds))
             if (sys.thermal.cpuSpeedLimitPct < 100) {
                 KeyValueRow("CPU speed limit", "${sys.thermal.cpuSpeedLimitPct}%", valueColor = Muse.Warn)

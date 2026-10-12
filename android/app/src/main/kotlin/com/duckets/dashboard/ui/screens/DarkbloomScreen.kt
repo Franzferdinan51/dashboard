@@ -54,7 +54,7 @@ fun DarkbloomScreen(state: DashboardUiState, columns: Int = 1, onRefresh: () -> 
     val ov = state.overview
     val hPad = if (columns >= 2) 24.dp else 16.dp
     val maxW = if (columns >= 2) 1080.dp else 720.dp
-    PullToRefreshBox(isRefreshing = state.isRefreshing, onRefresh = onRefresh, modifier = modifier.fillMaxSize()) {
+    PullToRefreshBox(isRefreshing = state.isPullRefreshing, onRefresh = onRefresh, modifier = modifier.fillMaxSize()) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
             LazyColumn(
                 Modifier.fillMaxSize().widthIn(max = maxW).padding(horizontal = hPad),
@@ -134,7 +134,7 @@ private fun EarningsCard(db: DarkbloomStats, e: Earnings?, connected: Boolean) {
                 // Progress toward the next milestone: the $1 withdrawal
                 // minimum first, then rolling 2/5 x 10^n targets so the
                 // bar keeps meaning something past $1.
-                val bal = e.balanceUsd?.toDoubleOrNull() ?: 0.0
+                val bal = e.balanceUsd?.toDoubleOrNull()?.takeIf { it.isFinite() } ?: 0.0
                 val (msPrev, msNext) = nextMilestone(bal)
                 Spacer(Modifier.height(10.dp))
                 MeterBar(((bal - msPrev) / (msNext - msPrev)).toFloat().coerceIn(0f, 1f), Muse.Emerald, heightDp = 8)

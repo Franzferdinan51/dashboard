@@ -36,7 +36,7 @@ import java.util.Date
 import java.util.Locale
 
 internal fun usdD(v: Double?, digits: Int = 2): String =
-    if (v == null) "—" else "$" + String.format(Locale.US, "%,.${digits}f", v)
+    if (v == null || !v.isFinite()) "—" else "$" + String.format(Locale.US, "%,.${digits}f", v)
 
 internal fun fmtClock(epochSec: Double?): String =
     if (epochSec == null) "—"
@@ -55,7 +55,7 @@ internal fun fmtClock(epochSec: Double?): String =
 fun MiningScreen(state: DashboardUiState, columns: Int = 1, onRefresh: () -> Unit = {}, modifier: Modifier = Modifier, listState: LazyListState = rememberLazyListState()) {
     val hPad = if (columns >= 2) 24.dp else 16.dp
     val maxW = if (columns >= 2) 1080.dp else 720.dp
-    PullToRefreshBox(isRefreshing = state.isRefreshing, onRefresh = onRefresh, modifier = modifier.fillMaxSize()) {
+    PullToRefreshBox(isRefreshing = state.isPullRefreshing, onRefresh = onRefresh, modifier = modifier.fillMaxSize()) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
             LazyColumn(
                 Modifier.fillMaxSize().widthIn(max = maxW).padding(horizontal = hPad),
@@ -107,7 +107,7 @@ private fun VerifiedCard(ver: BatmanVerified?) {
                     "${(ver.nethashThs?.let { it / 1e6 } ?: 0.0).let { String.format(Locale.US, "%.1f", it) }} EH/s · ${usdD(ver.usdPerThDay, 4)}/TH/day · fee ${ver.poolFeePct ?: "—"}%")
                 KeyValueRow("Kryptex claims (12:32 PM snapshot)",
                     if (ver.kryptexClaimPerDayUsd != null)
-                        "${usdD(ver.kryptexClaimPerDayUsd)}/day — verified runs ${(ver.deltaVsClaimPct ?: 0.0).let { (if (it >= 0) "+" else "") + it }}% vs the claim"
+                        "${usdD(ver.kryptexClaimPerDayUsd)}/day — verified runs ${String.format(Locale.US, "%+.1f", ver.deltaVsClaimPct ?: 0.0)}% vs the claim"
                     else "—")
                 Spacer(Modifier.height(8.dp))
                 Text(
