@@ -137,6 +137,24 @@ private fun BatmanLiveCard(state: DashboardUiState) {
                     },
                 )
             }
+            val ver = state.mining?.batmanVerified
+            if (ver != null) {
+                Spacer(Modifier.height(10.dp))
+                KeyValueRow("Verified revenue (live calc)",
+                    (ver.usdPerDayNet?.let { usdD(it) } ?: "—") + "/day net", valueColor = Muse.Good)
+                KeyValueRow("Verified gross",
+                    "${usdD(ver.usdPerDayGross)}/day · ${ver.prlPerDayGross ?: "—"} PRL/day")
+                KeyValueRow("Verified / week · / month",
+                    "${usdD(ver.usdPerWeekNet)} · ${usdD(ver.usdPerMonthNet)}")
+                KeyValueRow("Kryptex claims",
+                    if (ver.kryptexClaimPerDayUsd != null)
+                        "${usdD(ver.kryptexClaimPerDayUsd)}/day (${(ver.deltaVsClaimPct ?: 0.0).let { (if (it >= 0) "+" else "") + it }}% vs verified)"
+                    else "—")
+                KeyValueRow("Calc basis",
+                    "${ver.hashrateBasisThs ?: "—"} TH/s (${ver.hashrateBasis ?: "miner log"})")
+                KeyValueRow("PRL price",
+                    "${usdD(ver.priceUsd, 2)} (${ver.priceSource ?: "—"}) · net ${(ver.nethashThs?.let { it / 1e6 } ?: 0.0).let { String.format(java.util.Locale.US, "%.1f", it) }} EH/s · ${usdD(ver.usdPerThDay, 4)}/TH/day · fee ${ver.poolFeePct ?: "—"}%")
+            }
             if (live != null) {
                 Spacer(Modifier.height(10.dp))
                 KeyValueRow("Hashrate now", live.hashrateThs?.let { "$it TH/s" } ?: "—")
