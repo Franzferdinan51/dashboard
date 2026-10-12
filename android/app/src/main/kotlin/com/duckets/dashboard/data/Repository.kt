@@ -445,6 +445,15 @@ private fun parseMining(m: JSONObject): MiningData {
     val live = m.obj("batman_live")
     val ver = m.obj("batman_verified")
     val vnet = ver?.obj("network")
+    val hist = m.obj("batman_history")
+    val histPoints = buildList {
+        hist?.arr("points")?.let { a ->
+            for (i in 0 until a.length()) {
+                val p = a.optJSONArray(i) ?: continue
+                add(HashratePoint(tsSec = p.optDouble(0, 0.0), ths = p.optDouble(1, 0.0)))
+            }
+        }
+    }
     return MiningData(
         fleetAsOfEpochSec = fleet?.dbl("as_of"),
         fleetSource = fleet?.str("source"),
@@ -453,6 +462,21 @@ private fun parseMining(m: JSONObject): MiningData {
         totalPerWeekUsd = totals?.dbl("per_week_usd"),
         totalPerMonthUsd = totals?.dbl("per_month_usd"),
         totalPerYearUsd = totals?.dbl("per_year_usd"),
+        batmanHistory = hist?.let {
+            BatmanHistory(
+                points = histPoints,
+                coverageFromEpochSec = it.dbl("coverage_from"),
+                coverageToEpochSec = it.dbl("coverage_to"),
+                spanHours = it.dbl("span_hours"),
+                sampleCount = it.intOrNull("sample_count"),
+                avgActiveThs = it.dbl("avg_active_ths"),
+                avgOverallThs = it.dbl("avg_overall_ths"),
+                uptimeFraction = it.dbl("uptime_fraction"),
+                realizedPrlEst = it.dbl("realized_prl_est"),
+                realizedUsdNetEst = it.dbl("realized_usd_net_est"),
+                realizedBasis = it.str("realized_basis"),
+            )
+        },
         batmanVerified = ver?.let {
             BatmanVerified(
                 hashrateBasisThs = it.dbl("hashrate_basis_ths"),

@@ -207,6 +207,7 @@ data class MiningData(
     val totalPerYearUsd: Double? = null,
     val batmanLive: BatmanLive? = null,
     val batmanVerified: BatmanVerified? = null,
+    val batmanHistory: BatmanHistory? = null,
 )
 
 data class MiningCoin(
@@ -293,3 +294,21 @@ data class BatmanVerified(
     val usdPerThDay: Double? = null,
     val poolFeePct: Double? = null,
 )
+
+/** Batman-3 hashrate history: the miner's own log (backfill) merged with
+ * the bridge's per-minute ledger. Points are [epochSec, TH/s]. */
+data class BatmanHistory(
+    val points: List<HashratePoint> = emptyList(),
+    val coverageFromEpochSec: Double? = null,
+    val coverageToEpochSec: Double? = null,
+    val spanHours: Double? = null,
+    val sampleCount: Int? = null,
+    val avgActiveThs: Double? = null,
+    val avgOverallThs: Double? = null,
+    val uptimeFraction: Double? = null,
+    val realizedPrlEst: Double? = null,
+    val realizedUsdNetEst: Double? = null,
+    val realizedBasis: String? = null,
+)
+
+data class HashratePoint(val tsSec: Double = 0.0, val ths: Double = 0.0)
