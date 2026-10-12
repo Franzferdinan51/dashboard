@@ -130,7 +130,7 @@ private fun CombinedGraphCard(state: DashboardUiState) {
         Column(Modifier.padding(20.dp)) {
             CardHeader(
                 "Combined tracked earnings",
-                subtitle = "Since ${fmtClock(t0)} · Darkbloom exact from the ledger, mining modeled at the snapshot rate",
+                subtitle = "Since ${fmtClock(t0)} · Darkbloom exact from the ledger, mining modeled at the verified rate",
             )
             Spacer(Modifier.height(10.dp))
             Sparkline(combined, Muse.Emerald, heightDp = 84,
