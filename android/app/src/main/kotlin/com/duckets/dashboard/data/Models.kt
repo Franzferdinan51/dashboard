@@ -143,7 +143,7 @@ data class ModelEarnings(
 
 data class EarningEntry(
     val model: String = "",
-    val amountUsd: Double = 0.0,
+    val amountMicroUsd: Long = 0,
     val promptTokens: Long? = null,
     val completionTokens: Long? = null,
     val createdAt: String? = null,

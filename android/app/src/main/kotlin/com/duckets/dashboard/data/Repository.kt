@@ -1,47 +1,91 @@
 package com.duckets.dashboard.data
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
 import org.json.JSONArray
+import org.json.JSONException
 import org.json.JSONObject
+import java.io.IOException
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 /** Talks to the Mac-side dashboard bridge (see bridge/dashboard_bridge.py). */
 class DashboardRepository(
-    private val client: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(4, TimeUnit.SECONDS)
-        .readTimeout(10, TimeUnit.SECONDS)
-        .build(),
+    private val client: OkHttpClient = SHARED_CLIENT,
 ) {
     data class Health(val ok: Boolean, val version: String?, val latencyMs: Long)
 
-    suspend fun fetchHealth(baseUrl: String): Health = withContext(Dispatchers.IO) {
-        val started = System.currentTimeMillis()
-        val url = baseUrl.trim().trimEnd('/') + "/api/health"
-        val req = Request.Builder().url(url).get().build()
-        client.newCall(req).execute().use { resp ->
-            if (!resp.isSuccessful) error("Bridge returned HTTP ${resp.code}")
-            val body = resp.body?.string() ?: error("Empty response from bridge")
-            val json = JSONObject(body)
-            Health(
-                ok = json.optBoolean("ok", false),
-                version = json.optString("version").ifBlank { null },
-                latencyMs = System.currentTimeMillis() - started,
-            )
-        }
+    companion object {
+        // One client for the app's lifetime: per-instance clients leak
+        // dispatcher threads and connection pools if the repo is recreated.
+        // callTimeout hard-bounds a whole request — readTimeout alone only
+        // bounds gaps between bytes, so a trickling bridge could wedge the
+        // poll loop forever.
+        private val SHARED_CLIENT: OkHttpClient = OkHttpClient.Builder()
+            .connectTimeout(4, TimeUnit.SECONDS)
+            .readTimeout(10, TimeUnit.SECONDS)
+            .callTimeout(12, TimeUnit.SECONDS)
+            .build()
     }
 
-    suspend fun fetchOverview(baseUrl: String): Overview = withContext(Dispatchers.IO) {
-        val url = baseUrl.trimEnd('/') + "/api/overview"
-        val req = Request.Builder().url(url).get().build()
-        client.newCall(req).execute().use { resp ->
-            if (!resp.isSuccessful) error("Bridge returned HTTP ${resp.code}")
-            val body = resp.body?.string() ?: error("Empty response from bridge")
-            parseOverview(JSONObject(body))
-        }
+    /** Trim, drop trailing slashes, and add http:// when no scheme is present. */
+    fun normalizeBaseUrl(raw: String): String {
+        var url = raw.trim().trimEnd('/')
+        if (!url.startsWith("http://") && !url.startsWith("https://")) url = "http://$url"
+        return url
     }
+
+    private suspend fun getJson(baseUrl: String, path: String): JSONObject {
+        val url = normalizeBaseUrl(baseUrl) + path
+        val req = Request.Builder().url(url).get().build()
+        val call = client.newCall(req)
+        // Truly cancellable: cancelling the coroutine cancels the HTTP call,
+        // so a stale request from an old bridge URL can never complete late
+        // and overwrite newer state.
+        val body = suspendCancellableCoroutine { cont ->
+            cont.invokeOnCancellation { call.cancel() }
+            call.enqueue(object : Callback {
+                override fun onFailure(call: Call, e: IOException) {
+                    if (cont.isActive) cont.resumeWithException(e)
+                }
+
+                override fun onResponse(call: Call, response: Response) {
+                    try {
+                        response.use {
+                            if (!it.isSuccessful) {
+                                throw IOException("Bridge returned HTTP ${it.code}")
+                            }
+                            val text = it.body?.string()
+                                ?: throw IOException("Empty response from bridge")
+                            if (cont.isActive) cont.resume(text)
+                        }
+                    } catch (e: Exception) {
+                        if (cont.isActive) cont.resumeWithException(e)
+                    }
+                }
+            })
+        }
+        return withContext(Dispatchers.IO) { JSONObject(body) }
+    }
+
+    suspend fun fetchHealth(baseUrl: String): Health {
+        val started = System.currentTimeMillis()
+        val json = getJson(baseUrl, "/api/health")
+        return Health(
+            ok = json.optBoolean("ok", false),
+            version = json.optString("version").ifBlank { null },
+            latencyMs = System.currentTimeMillis() - started,
+        )
+    }
+
+    suspend fun fetchOverview(baseUrl: String): Overview = parseOverview(getJson(baseUrl, "/api/overview"))
 }
 
 // ---------------------------------------------------------------------------
@@ -58,7 +102,9 @@ private fun JSONObject.str(key: String): String? =
     if (has(key) && !isNull(key)) optString(key).ifBlank { null } else null
 
 private fun JSONObject.dbl(key: String): Double? =
-    if (has(key) && !isNull(key)) optDouble(key) else null
+    // optDouble yields NaN for non-numeric values; NaN must read as "absent",
+    // never flow into gauges, formatting, or history lists.
+    if (has(key) && !isNull(key)) optDouble(key).takeIf { it.isFinite() } else null
 
 private fun JSONObject.lng(key: String): Long? =
     if (has(key) && !isNull(key)) optLong(key) else null
@@ -70,6 +116,11 @@ private fun JSONObject.bool(key: String): Boolean? =
     if (has(key) && !isNull(key)) optBoolean(key) else null
 
 fun parseOverview(root: JSONObject): Overview {
+    // A 200 with an empty or error-shaped body must land in the error path —
+    // never render as a plausible fake machine that reads "connected".
+    if (!root.has("system") && !root.has("generated_at")) {
+        throw JSONException("Unexpected response from bridge")
+    }
     val sys = root.obj("system") ?: JSONObject()
     val mem = sys.obj("memory") ?: JSONObject()
     val swap = mem.obj("swap") ?: JSONObject()
@@ -79,7 +130,10 @@ fun parseOverview(root: JSONObject): Overview {
 
     val loadArr = sys.arr("load_avg")
     val load = buildList {
-        if (loadArr != null) for (i in 0 until loadArr.length()) add(loadArr.optDouble(i))
+        if (loadArr != null) for (i in 0 until loadArr.length()) {
+            val v = loadArr.optDouble(i)
+            if (v.isFinite()) add(v)
+        }
     }
 
     val disks = buildList {
@@ -175,11 +229,16 @@ private fun parseDarkbloom(db: JSONObject): DarkbloomStats {
     val autopilot = db.obj("autopilot") ?: JSONObject()
     val attest = db.obj("app_attest") ?: JSONObject()
 
+    // Skip non-string elements rather than rendering their raw JSON text.
     val warm = buildList {
-        db.arr("warm_models")?.let { a -> for (i in 0 until a.length()) add(a.optString(i)) }
+        db.arr("warm_models")?.let { a ->
+            for (i in 0 until a.length()) (a.opt(i) as? String)?.let { add(it) }
+        }
     }
     val advertised = buildList {
-        db.arr("advertised_models")?.let { a -> for (i in 0 until a.length()) add(a.optString(i)) }
+        db.arr("advertised_models")?.let { a ->
+            for (i in 0 until a.length()) (a.opt(i) as? String)?.let { add(it) }
+        }
     }
     val slots = buildList {
         db.arr("slots")?.let { a ->
@@ -266,7 +325,9 @@ private fun parseEarnings(e: JSONObject): Earnings {
                 add(
                     EarningEntry(
                         model = r.str("model") ?: "",
-                        amountUsd = r.dbl("amount_usd") ?: 0.0,
+                        // Money stays in integer micro-USD end to end; no
+                        // floating-point currency anywhere in the pipeline.
+                        amountMicroUsd = r.lng("amount_micro_usd") ?: 0,
                         promptTokens = r.lng("prompt_tokens"),
                         completionTokens = r.lng("completion_tokens"),
                         createdAt = r.str("created_at"),
