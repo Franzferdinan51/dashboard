@@ -61,7 +61,7 @@ fun EarningsScreen(state: DashboardUiState, columns: Int = 1, onRefresh: () -> U
                 } else {
                     item { CombinedCard(state) }
                     val series = est?.series.orEmpty()
-                    val mineDay = mn?.totalPerDayUsd
+                    val mineDay = mn?.batmanVerified?.usdPerDayNet
                     if (series.size >= 2 && mineDay != null) {
                         item { CombinedGraphCard(state) }
                     }
@@ -85,7 +85,7 @@ private fun CombinedCard(state: DashboardUiState) {
     val e = state.overview?.darkbloom?.earnings
     val est = e?.estimates
     val dbDay = est?.perDayUsd
-    val mineDay = state.mining?.totalPerDayUsd
+    val mineDay = state.mining?.batmanVerified?.usdPerDayNet
     val day = (dbDay ?: 0.0) + (mineDay ?: 0.0)
     MuseCard(Modifier.fillMaxWidth(), hero = true) {
         Column(Modifier.padding(20.dp)) {
@@ -99,7 +99,7 @@ private fun CombinedCard(state: DashboardUiState) {
             Spacer(Modifier.height(12.dp))
             KeyValueRow("Darkbloom (realized, bridge ledger)",
                 if (dbDay != null) "${usdD(dbDay)} · ${usdD(dbDay * 7)}/wk · ${usdD(dbDay * 30)}/mo" else "—")
-            KeyValueRow("Mining (Kryptex snapshot)",
+            KeyValueRow("Mining — Batman-3 (verified, miner log)",
                 if (mineDay != null) "${usdD(mineDay)} · ${usdD(mineDay * 7)}/wk · ${usdD(mineDay * 30)}/mo" else "—")
             KeyValueRow("Darkbloom share",
                 if (dbDay != null && day > 0) "${Math.round(dbDay / day * 100)}%" else "—")
@@ -108,8 +108,7 @@ private fun CombinedCard(state: DashboardUiState) {
             KeyValueRow("Darkbloom balance", fmtUsd(e?.balanceUsd))
             Spacer(Modifier.height(8.dp))
             Text(
-                "Two different kinds of truth: Darkbloom is realized money from the bridge's ledger; mining is Kryptex's estimate from the last manual snapshot" +
-                    (state.mining?.fleetAsOfEpochSec?.let { " (${fmtClock(it)})" } ?: "") + ".",
+                "Two different kinds of truth, both computed by the bridge: Darkbloom is realized money from its earnings ledger; mining is Batman-3 only, from the miner's own log at live network rates. The rest of the Kryptex fleet is excluded — no trusted source for it.",
                 style = MaterialTheme.typography.bodySmall, color = Muse.TextFaint,
             )
         }
@@ -119,7 +118,7 @@ private fun CombinedCard(state: DashboardUiState) {
 @Composable
 private fun CombinedGraphCard(state: DashboardUiState) {
     val est = state.overview?.darkbloom?.earnings?.estimates ?: return
-    val mineDay = state.mining?.totalPerDayUsd ?: return
+    val mineDay = state.mining?.batmanVerified?.usdPerDayNet ?: return
     val series = est.series
     if (series.size < 2) return
     val t0 = series.first().tsSec
@@ -142,7 +141,7 @@ private fun CombinedGraphCard(state: DashboardUiState) {
                     style = MaterialTheme.typography.bodySmall, color = Muse.Emerald)
                 Text("Darkbloom " + usdD((series.last().totalMicroUsd - base) / 1e6),
                     style = MaterialTheme.typography.bodySmall, color = Muse.Sky)
-                Text("Mining (modeled) " + usdD((series.last().tsSec - t0) * mineDay / 86400.0),
+                Text("Mining — Batman-3 (modeled) " + usdD((series.last().tsSec - t0) * mineDay / 86400.0),
                     style = MaterialTheme.typography.bodySmall, color = Muse.Warn)
             }
         }
