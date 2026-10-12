@@ -13,6 +13,7 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -32,15 +33,19 @@ import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MonetizationOn
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
@@ -95,12 +100,17 @@ enum class Tab(val label: String, val icon: ImageVector) {
     Settings("Settings", Icons.Filled.Settings),
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DashboardRoot(windowSizeClass: WindowSizeClass) {
     val vm: DashboardViewModel = viewModel()
     val state by vm.state.collectAsState()
     var tabName by rememberSaveable { mutableStateOf(Tab.Overview.name) }
     val tab = runCatching { Tab.valueOf(tabName) }.getOrDefault(Tab.Overview)
+    // Portrait phone nav: a slim bar (current section + Menu) and a
+    // hamburger sheet with every destination — seven items in a bottom
+    // bar was too crowded to read or tap.
+    var menuOpen by remember { mutableStateOf(false) }
 
     // Poll only while the app is visible: no battery/network cost in the
     // background, and pull-to-refresh covers any gap on return.
@@ -159,21 +169,28 @@ fun DashboardRoot(windowSizeClass: WindowSizeClass) {
             bottomBar = {
                 if (!expanded) {
                     NavigationBar(containerColor = Muse.Night.copy(alpha = 0.96f)) {
-                        Tab.entries.forEach { t ->
-                            NavigationBarItem(
-                                selected = tab == t,
-                                onClick = { tabName = t.name },
-                                icon = { Icon(t.icon, t.label) },
-                                label = { Text(t.label) },
-                                colors = NavigationBarItemDefaults.colors(
-                                    selectedIconColor = Muse.Mist,
-                                    selectedTextColor = Muse.Mist,
-                                    indicatorColor = Muse.Blue,
-                                    unselectedIconColor = Muse.TextDim,
-                                    unselectedTextColor = Muse.TextDim,
-                                ),
-                            )
-                        }
+                        val itemColors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = Muse.Mist,
+                            selectedTextColor = Muse.Mist,
+                            indicatorColor = Muse.Blue,
+                            unselectedIconColor = Muse.TextDim,
+                            unselectedTextColor = Muse.TextDim,
+                        )
+                        // Current destination — tapping it opens the menu too.
+                        NavigationBarItem(
+                            selected = true,
+                            onClick = { menuOpen = true },
+                            icon = { Icon(tab.icon, tab.label) },
+                            label = { Text(tab.label) },
+                            colors = itemColors,
+                        )
+                        NavigationBarItem(
+                            selected = false,
+                            onClick = { menuOpen = true },
+                            icon = { Icon(Icons.Filled.Menu, "Menu") },
+                            label = { Text("Menu") },
+                            colors = itemColors,
+                        )
                     }
                 }
             },
@@ -229,6 +246,77 @@ fun DashboardRoot(windowSizeClass: WindowSizeClass) {
                     }
                 }
             }
+        }
+        if (!expanded && menuOpen) {
+            TabMenuSheet(
+                current = tab,
+                onPick = { picked ->
+                    tabName = picked.name
+                    menuOpen = false
+                },
+                onDismiss = { menuOpen = false },
+            )
+        }
+    }
+}
+
+/**
+ * Hamburger destination menu for portrait phones: every tab as a big,
+ * easy-to-hit row in a bottom sheet, the current one highlighted.
+ * Borrowed from the Muse Companion pattern — one clean home surface,
+ * destinations on demand instead of a crowded permanent bar.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TabMenuSheet(current: Tab, onPick: (Tab) -> Unit, onDismiss: () -> Unit) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = Muse.Night,
+        contentColor = Muse.Mist,
+    ) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+            Text(
+                "GO TO",
+                style = MaterialTheme.typography.labelMedium,
+                color = Muse.TextFaint,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            )
+            Tab.entries.forEach { t ->
+                val selected = t == current
+                Row(
+                    Modifier.fillMaxWidth()
+                        .background(
+                            if (selected) Muse.Blue.copy(alpha = 0.20f) else androidx.compose.ui.graphics.Color.Transparent,
+                            Muse.ChipShape,
+                        )
+                        .clickable { onPick(t) }
+                        .padding(horizontal = 14.dp, vertical = 15.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        t.icon, t.label,
+                        tint = if (selected) Muse.Mist else Muse.TextDim,
+                        modifier = Modifier.size(24.dp),
+                    )
+                    Spacer(Modifier.width(14.dp))
+                    Text(
+                        t.label,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = if (selected) Muse.Mist else Muse.TextDim,
+                    )
+                    if (selected) {
+                        Spacer(Modifier.weight(1f))
+                        Box(
+                            Modifier.size(8.dp)
+                                .background(Muse.Good, androidx.compose.foundation.shape.CircleShape),
+                        )
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+            }
+            Spacer(Modifier.height(18.dp))
         }
     }
 }
