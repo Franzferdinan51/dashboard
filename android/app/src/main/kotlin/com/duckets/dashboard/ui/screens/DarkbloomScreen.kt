@@ -37,6 +37,7 @@ import com.duckets.dashboard.ui.components.KeyValueRow
 import com.duckets.dashboard.ui.components.MeterBar
 import com.duckets.dashboard.ui.components.MuseCard
 import com.duckets.dashboard.ui.components.SkeletonCard
+import com.duckets.dashboard.ui.components.Sparkline
 import com.duckets.dashboard.ui.components.StatusChip
 import com.duckets.dashboard.ui.fmtCount
 import com.duckets.dashboard.ui.fmtDuration
@@ -130,12 +131,16 @@ private fun EarningsCard(db: DarkbloomStats, e: Earnings?, connected: Boolean) {
             } else {
                 Text(fmtUsd(e.balanceUsd), style = MaterialTheme.typography.headlineLarge, color = Muse.Mist)
                 Text("available balance", style = MaterialTheme.typography.bodySmall, color = Muse.TextDim)
-                // Progress toward the $1 withdrawal threshold.
+                // Progress toward the next milestone: the $1 withdrawal
+                // minimum first, then rolling 2/5 x 10^n targets so the
+                // bar keeps meaning something past $1.
                 val bal = e.balanceUsd?.toDoubleOrNull() ?: 0.0
+                val (msPrev, msNext) = nextMilestone(bal)
                 Spacer(Modifier.height(10.dp))
-                MeterBar((bal / 1.0).toFloat().coerceIn(0f, 1f), Muse.Emerald, heightDp = 8)
+                MeterBar(((bal - msPrev) / (msNext - msPrev)).toFloat().coerceIn(0f, 1f), Muse.Emerald, heightDp = 8)
                 Text(
-                    if (bal >= 1.0) "Above the $1 withdrawal minimum — ready to withdraw."
+                    if (bal >= 1.0) "Above the $1 minimum — withdrawable anytime · " +
+                        "${fmtUsd((msNext - bal).toString())} to the ${fmtUsd(msNext.toString())} milestone"
                     else "${fmtUsd((1.0 - bal).toString())} to the $1 withdrawal minimum",
                     style = MaterialTheme.typography.bodySmall,
                     color = if (bal >= 1.0) Muse.Good else Muse.TextDim,
@@ -156,7 +161,9 @@ private fun EarningsCard(db: DarkbloomStats, e: Earnings?, connected: Boolean) {
 private fun EstimatesCard(est: EarningsEstimates) {
     MuseCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(20.dp)) {
-            CardHeader("Estimated returns", subtitle = "live · realized rates from the bridge ledger") {
+            CardHeader("Estimated returns",
+                subtitle = "live · realized rates from the bridge ledger" +
+                    (est.confidence?.let { " · confidence: $it" } ?: "")) {
                 StatusChip("LIVE", Muse.Good, pulse = true)
             }
             Spacer(Modifier.height(12.dp))
@@ -165,7 +172,29 @@ private fun EstimatesCard(est: EarningsEstimates) {
                 EstBox(Modifier.weight(1f), "PER WEEK", est.perWeekUsd)
                 EstBox(Modifier.weight(1f), "PER MONTH", est.perMonthUsd)
             }
+            if (est.series.size >= 2) {
+                Spacer(Modifier.height(12.dp))
+                Sparkline(
+                    data = est.series.map { (it.totalMicroUsd / 1e6).toFloat() },
+                    color = Muse.Emerald,
+                    modifier = Modifier.fillMaxWidth(),
+                    heightDp = 54,
+                    description = "Cumulative lifetime earnings from the bridge ledger",
+                )
+                Text("cumulative earnings · bridge ledger",
+                    style = MaterialTheme.typography.labelSmall, color = Muse.TextDim)
+            }
             Spacer(Modifier.height(10.dp))
+            if (est.basePerDayUsd != null || est.jobsPerDayUsd != null) {
+                KeyValueRow("Base floor (per day)", est.basePerDayUsd?.let { fmtDayRate(it) } ?: "—")
+                KeyValueRow("Paid jobs (per day)", est.jobsPerDayUsd?.let { fmtDayRate(it) } ?: "—")
+            }
+            if (est.onlineFraction != null) {
+                KeyValueRow("Provider online", "${(est.onlineFraction * 100).toInt()}% of tracked time")
+            }
+            if (est.whileServingPerDayUsd != null) {
+                KeyValueRow("While serving (per day)", fmtDayRate(est.whileServingPerDayUsd))
+            }
             val basis = buildString {
                 est.basisLabel?.let { append(it) }
                 est.trackedSinceEpochSec?.let { ts ->
@@ -191,6 +220,24 @@ private fun EstBox(modifier: Modifier, label: String, v: Double) {
             style = MaterialTheme.typography.titleLarge, color = Muse.Mist)
     }
 }
+
+/** (previous, next) milestone bracket for a balance: $1 first (the
+ * withdrawal minimum), then 2/5 x 10^n steps. */
+private fun nextMilestone(bal: Double): Pair<Double, Double> {
+    var prev = 0.0
+    var p = 1.0
+    while (p <= 100000.0) {
+        for (s in listOf(p, p * 2, p * 5)) {
+            if (bal < s) return prev to s
+            prev = s
+        }
+        p *= 10
+    }
+    return prev to prev * 2
+}
+
+private fun fmtDayRate(v: Double): String =
+    "$" + String.format(java.util.Locale.US, "%.2f", v)
 
 private fun fmtTrackedSince(epochSec: Double): String =
     java.text.SimpleDateFormat("MMM d, h:mm a", java.util.Locale.US)
