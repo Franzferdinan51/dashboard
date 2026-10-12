@@ -1036,7 +1036,15 @@ function renderMining(mn) {
     ? chip(live.running ? "MINER RUNNING" : "MINER STOPPED", live.running ? "ok" : "bad") +
       (live.stale ? chip("last known", "warn") : chip("live", "blue"))
     : chip("PC UNREACHABLE", "bad");
+  const ver = mn.batman_verified;
   $("mineLiveRows").innerHTML = live ? (
+    (ver ? `<div class="row"><span class="k" style="color:var(--green);font-weight:700">Verified revenue (live calc)</span>
+      <span class="v" style="color:var(--green)">${fmtUsd(ver.usd_per_day_net, 2)}/day net</span></div>` +
+    row("Verified gross", `${fmtUsd(ver.usd_per_day_gross, 2)}/day · ${ver.prl_per_day_gross} PRL/day`) +
+    row("Verified / week · / month", `${fmtUsd(ver.usd_per_week_net, 2)} · ${fmtUsd(ver.usd_per_month_net, 2)}`) +
+    row("Kryptex claims", ver.kryptex_claim_per_day_usd != null
+      ? `${fmtUsd(ver.kryptex_claim_per_day_usd, 2)}/day (${ver.delta_vs_claim_pct >= 0 ? "+" : ""}${ver.delta_vs_claim_pct}% vs verified)` : "—") +
+    row("Calc basis", `${ver.hashrate_basis_ths} TH/s (${esc(ver.hashrate_basis)}) · PRL ${fmtUsd(ver.network.price_usd, 2)} (${esc(ver.network.price_source)}) · net ${(ver.network.nethash_ths / 1e6).toFixed(1)} EH/s · ${fmtUsd(ver.network.usd_per_th_day, 4)}/TH/day · fee ${ver.network.pool_fee_pct}%`) : "") +
     row("Hashrate now", live.hashrate_ths != null ? `${live.hashrate_ths} TH/s` : "—") +
     row("Average 1h", live.avg_1h_ths != null ? `${live.avg_1h_ths} TH/s` : "—") +
     row("Miner power", live.power_w != null ? `${live.power_w} W` : "—") +
