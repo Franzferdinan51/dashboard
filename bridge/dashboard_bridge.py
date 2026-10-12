@@ -29,6 +29,7 @@ Data sources (all local, read-only):
 
 import argparse
 import datetime
+import decimal
 import gzip
 import json
 import os
@@ -49,7 +50,7 @@ DARKBLOOM_STATE = os.path.join(HOME, ".darkbloom", "daemon-state.json")
 DARKBLOOM_TOKEN = os.path.join(HOME, ".darkbloom", "auth_token")
 LMSTUDIO_KEY = os.path.join(HOME, ".config", "lmstudio", "api_key")
 LMSTUDIO_BASE = "http://127.0.0.1:1234"
-BRIDGE_VERSION = "1.3.0"
+BRIDGE_VERSION = "1.5.0"
 _STARTED_AT = time.time()
 
 # --------------------------------------------------------------------------
@@ -369,6 +370,128 @@ def _is_earning(running, last_credit_at, last_activity_at, now,
     return False
 
 
+# --- Earnings snapshots: the bridge's own ground-truth ledger -----------
+# Every successful earnings fetch snapshots the API's lifetime total.
+# Realized earnings over any trailing window are then exactly
+# (total_now - total_then): no extrapolation from a handful of recent
+# credits, and immune to credits the recent-entries window skipped.
+EARNINGS_SNAPSHOTS = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "earnings-snapshots.jsonl")
+_SNAP_KEEP_SECONDS = 8 * 86400
+_snap_lock = threading.Lock()
+_snap_cache = None
+
+
+def _usd_str_to_micro(s):
+    try:
+        return int((decimal.Decimal(str(s)) * 1_000_000).to_integral_value(
+            rounding=decimal.ROUND_DOWN))
+    except Exception:
+        return None
+
+
+def _snaps_load():
+    global _snap_cache
+    if _snap_cache is not None:
+        return _snap_cache
+    rows = []
+    try:
+        with open(EARNINGS_SNAPSHOTS) as f:
+            for line in f:
+                try:
+                    ts, micro = json.loads(line)
+                    rows.append((float(ts), int(micro)))
+                except Exception:
+                    continue
+    except Exception:
+        pass
+    rows.sort()
+    _snap_cache = rows
+    return rows
+
+
+def _snap_record(total_micro):
+    """Append a snapshot when the lifetime total moves. Windows are
+    computed against the live point, so unchanged totals need no rows."""
+    if total_micro is None:
+        return
+    now = time.time()
+    with _snap_lock:
+        rows = _snaps_load()
+        if rows and rows[-1][1] == total_micro:
+            return
+        rows.append((now, total_micro))
+        cutoff = now - _SNAP_KEEP_SECONDS
+        kept = [r for r in rows if r[0] >= cutoff] or rows[-1:]
+        _snap_cache = kept
+        try:
+            if len(kept) != len(rows):
+                with open(EARNINGS_SNAPSHOTS, "w") as f:
+                    for ts, micro in kept:
+                        f.write(json.dumps([ts, micro]) + "\n")
+            else:
+                with open(EARNINGS_SNAPSHOTS, "a") as f:
+                    f.write(json.dumps([now, total_micro]) + "\n")
+        except Exception:
+            pass
+
+
+def _window_rate(rows, now, current_micro, window):
+    """Realized $/day over the trailing window: (rate, span, earned) or
+    None when the observed span is under 5 minutes."""
+    pts = rows + [(now, current_micro)]
+    target = now - window
+    then = pts[0]
+    for ts, micro in pts:
+        if ts <= target:
+            then = (ts, micro)
+        else:
+            break
+    span = now - then[0]
+    if span < 300:
+        return None
+    earned = (current_micro - then[1]) / 1e6
+    if earned < 0:
+        return None
+    return earned / span * 86400, span, earned
+
+
+def _compute_estimates(now, current_micro, api_fallback):
+    """Estimated returns from the snapshot ledger, blended across
+    trailing windows with the longest window weighted most. Falls back
+    to the API-window estimate until the ledger has ~5+ minutes of
+    span. Realized rates include downtime (Mac asleep, provider down),
+    which is what makes them honest return estimates."""
+    rows = _snaps_load()
+    if current_micro is None or not rows:
+        return api_fallback
+    comps, spans = {}, {}
+    for name, w in (("last_hour", 3600), ("last_24h", 86400),
+                    ("last_7d", 7 * 86400)):
+        r = _window_rate(rows, now, current_micro, w)
+        if r:
+            comps[name] = round(r[0], 4)
+            spans[name] = round(r[1])
+    if not comps:
+        return api_fallback
+    weights = {"last_hour": 0.2, "last_24h": 0.35, "last_7d": 0.45}
+    tw = sum(weights[k] for k in comps)
+    per_day = sum(comps[k] * weights[k] for k in comps) / tw
+    dominant = max(comps, key=lambda k: weights[k])
+    dom_label = {"last_hour": "last hour", "last_24h": "last 24 hours",
+                 "last_7d": "last 7 days"}[dominant]
+    return {
+        "per_day_usd": round(per_day, 4),
+        "per_week_usd": round(per_day * 7, 4),
+        "per_month_usd": round(per_day * 30, 4),
+        "method": "bridge-ledger",
+        "tracked_since": rows[0][0],
+        "components": comps,
+        "basis": {"label": f"realized earnings over the {dom_label}",
+                  "spans": spans},
+    }
+
+
 def _darkbloom_earnings():
     def fetch():
         try:
@@ -396,14 +519,48 @@ def _darkbloom_earnings():
                 slot = per_model.setdefault(model, {"jobs": 0, "micro_usd": 0})
                 slot["jobs"] += 1
                 slot["micro_usd"] += amt
-            recent = [{
-                "model": e.get("model"),
-                "amount_usd": round((e.get("amount_micro_usd") or 0) / 1e6, 6),
-                "amount_micro_usd": e.get("amount_micro_usd") or 0,
-                "prompt_tokens": e.get("prompt_tokens"),
-                "completion_tokens": e.get("completion_tokens"),
-                "created_at": e.get("created_at"),
-            } for e in entries[:8]]
+            def slim(e):
+                return {
+                    "model": e.get("model"),
+                    "amount_usd": round((e.get("amount_micro_usd") or 0) / 1e6, 6),
+                    "amount_micro_usd": e.get("amount_micro_usd") or 0,
+                    "prompt_tokens": e.get("prompt_tokens"),
+                    "completion_tokens": e.get("completion_tokens"),
+                    "created_at": e.get("created_at"),
+                }
+            recent = [slim(e) for e in entries[:8]]
+            # Full window (up to the API's history_limit) for the web
+            # dashboard's analytics; the app keeps using `recent`.
+            history = [slim(e) for e in entries]
+            # Cold-start fallback estimate from the API's recent-entries
+            # window (used only until the snapshot ledger has span).
+            api_estimates = None
+            if len(credit_times) >= 2:
+                span = max(credit_times) - min(credit_times)
+                window_usd = sum((e.get("amount_micro_usd") or 0)
+                                   for e in entries) / 1e6
+                if span >= 60 and window_usd > 0:
+                    per_day = window_usd / span * 86400
+                    api_estimates = {
+                        "per_day_usd": round(per_day, 4),
+                        "per_week_usd": round(per_day * 7, 4),
+                        "per_month_usd": round(per_day * 30, 4),
+                        "method": "api-window",
+                        "tracked_since": None,
+                        "components": {},
+                        "basis": {
+                            "label": "recent API window (ledger still warming up)",
+                            "window_seconds": round(span),
+                            "window_credits": len(entries),
+                            "window_usd": round(window_usd, 6),
+                        },
+                    }
+            # Ground truth: snapshot the lifetime total and compute
+            # realized trailing-window rates from the bridge's ledger.
+            total_micro = _usd_str_to_micro(data.get("total_usd"))
+            _snap_record(total_micro)
+            estimates = _compute_estimates(time.time(), total_micro,
+                                           api_estimates)
             return {
                 "balance_usd": data.get("available_balance_usd"),
                 "withdrawable_usd": data.get("withdrawable_balance_usd"),
@@ -414,10 +571,14 @@ def _darkbloom_earnings():
                 "base_rewards_micro_usd_recent": base_total,
                 "per_model_recent": per_model,
                 "recent": recent,
+                "history": history,
+                "estimates": estimates,
             }
         except Exception:
             return None
-    return cached("db_earnings", 30, fetch)
+    # 20s TTL + stale-while-revalidate: clients poll every few seconds
+    # and should see fresh estimates without ever waiting on this API.
+    return cached("db_earnings", 20, fetch, swr=True)
 
 
 _last_good_darkbloom = None

@@ -14,9 +14,8 @@
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--text);
     font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
-  a{color:var(--blue)}
   header{display:flex;flex-wrap:wrap;gap:10px;align-items:center;
-    padding:14px 18px;border-bottom:1px solid var(--line);background:var(--panel)}
+    padding:13px 18px;border-bottom:1px solid var(--line);background:var(--panel)}
   header h1{font-size:19px;margin:0;font-weight:700}
   header .sub{color:var(--dim);font-size:12.5px}
   .spacer{flex:1}
@@ -28,22 +27,32 @@
   .chip.warn{color:var(--amber)} .chip.warn .dot{background:var(--amber)}
   .chip.bad{color:var(--red)} .chip.bad .dot{background:var(--red)}
   .chip.blue{color:var(--blue)} .chip.blue .dot{background:var(--blue)}
-  button,select{background:var(--chip);color:var(--text);border:1px solid var(--line);
-    border-radius:8px;padding:5px 10px;font-size:12.5px;cursor:pointer}
+  button,select,input[type=text]{background:var(--chip);color:var(--text);
+    border:1px solid var(--line);border-radius:8px;padding:5px 10px;font-size:12.5px}
+  button{cursor:pointer}
+  input[type=range]{accent-color:var(--blue)}
+  nav.tabs{display:flex;gap:6px;flex-wrap:wrap;padding:10px 18px 0}
+  nav.tabs button{border-radius:999px;padding:6px 14px;font-weight:600;color:var(--dim)}
+  nav.tabs button.on{background:var(--blue);color:#fff;border-color:var(--blue)}
+  nav.tabs .bdg{background:var(--red);color:#fff;border-radius:999px;font-size:10.5px;
+    padding:0 6px;margin-left:6px;font-weight:700}
   #banner{display:none;margin:12px 18px 0;background:#3a2430;border:1px solid #6e3546;
-    color:#ffb3c0;border-radius:10px;padding:10px 14px;font-size:13px}
+    color:#ffb3c0;border-radius:10px;padding:10px 14px;font-size:13px;
+    align-items:center;gap:10px}
   .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));
     gap:10px;padding:14px 18px 0}
   .kpi{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
   .kpi .k{font-size:11px;letter-spacing:.08em;color:var(--faint);text-transform:uppercase}
   .kpi .v{font-size:21px;font-weight:700;margin-top:2px}
   .kpi .s{font-size:11.5px;color:var(--dim)}
+  .kpi canvas{width:100%;height:22px;display:block;margin-top:5px}
   main{display:grid;grid-template-columns:repeat(12,1fr);gap:12px;padding:14px 18px 20px}
   .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;
-    padding:14px 16px;min-width:0}
+    padding:14px 16px;min-width:0;transition:opacity .3s}
+  .card.stale{opacity:.55}
   .card h2{margin:0 0 4px;font-size:13px;letter-spacing:.07em;text-transform:uppercase;color:var(--dim)}
   .card h2 .right{float:right;letter-spacing:0;text-transform:none}
-  .s8{grid-column:span 8}.s6{grid-column:span 6}.s4{grid-column:span 4}
+  .s12{grid-column:span 12}.s8{grid-column:span 8}.s6{grid-column:span 6}.s4{grid-column:span 4}
   @media(max-width:1100px){.s8,.s6,.s4{grid-column:span 12}}
   .rows{display:flex;flex-direction:column;gap:5px;margin-top:8px}
   .row{display:flex;justify-content:space-between;gap:12px;font-size:13px}
@@ -55,12 +64,16 @@
   th{color:var(--faint);text-align:left;font-weight:600;padding:4px 6px;border-bottom:1px solid var(--line);white-space:nowrap}
   td{padding:4px 6px;border-bottom:1px solid #182642}
   td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
-  .procbar{height:5px;background:#0c1526;border-radius:3px;width:90px;display:inline-block;vertical-align:middle;margin-right:8px;overflow:hidden}
+  .procbar{height:5px;background:#0c1526;border-radius:3px;width:74px;display:inline-block;vertical-align:middle;margin-right:8px;overflow:hidden}
   .procbar>i{display:block;height:100%;background:var(--blue)}
-  canvas{width:100%;display:block}
-  .legend{display:flex;gap:14px;font-size:12px;color:var(--dim);margin-top:4px}
+  canvas.chart{width:100%;display:block}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--dim);margin-top:4px}
   .legend i{display:inline-block;width:14px;height:3px;border-radius:2px;vertical-align:middle;margin-right:5px}
   .big{font-size:31px;font-weight:800}
+  .est3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:6px}
+  .est{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:12px}
+  .est .k{font-size:11px;letter-spacing:.08em;color:var(--faint);text-transform:uppercase}
+  .est .v{font-size:26px;font-weight:800;margin-top:2px}
   .prog{height:10px;background:#0c1526;border-radius:6px;overflow:hidden;margin:8px 0 4px}
   .prog>i{display:block;height:100%;background:linear-gradient(90deg,#2aa56f,var(--green))}
   .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
@@ -72,7 +85,25 @@
   .evt .t{color:var(--faint);white-space:nowrap;font-variant-numeric:tabular-nums}
   .evt .ty{font-weight:700;white-space:nowrap}
   .evt .d{color:var(--dim);word-break:break-word}
+  .evt.new{background:#16283f}
   .note{font-size:12.5px;color:var(--amber);margin-top:8px}
+  .gauges{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;text-align:center}
+  .gauge svg{width:118px;height:118px}
+  .gauge .gl{font-size:11px;letter-spacing:.08em;color:var(--dim);text-transform:uppercase;margin-top:2px}
+  .gauge .gs{font-size:11.5px;color:var(--faint)}
+  .gauge canvas{width:100%;height:26px;display:block;margin-top:4px}
+  .heroStats{display:flex;gap:22px;flex-wrap:wrap;margin-top:8px}
+  .heroStats .hs .k{font-size:11px;letter-spacing:.08em;color:var(--faint);text-transform:uppercase}
+  .heroStats .hs .v{font-size:16px;font-weight:700}
+  .fbtn{border-radius:999px;padding:4px 12px;font-weight:600;color:var(--dim)}
+  .fbtn.on{background:var(--chip);color:var(--text);border-color:var(--blue)}
+  #toasts{position:fixed;top:14px;right:14px;z-index:50;display:flex;flex-direction:column;gap:8px}
+  .toast{background:var(--panel2);border:1px solid var(--blue);color:var(--text);
+    border-radius:10px;padding:10px 14px;font-size:13px;max-width:340px;
+    box-shadow:0 6px 24px rgba(0,0,0,.5)}
+  .cmd{display:flex;gap:8px;align-items:center;background:#0c1526;border:1px solid #182642;
+    border-radius:8px;padding:7px 10px;margin-top:7px;font-family:ui-monospace,Menlo,monospace;font-size:12.3px}
+  .cmd code{flex:1;word-break:break-all;color:var(--cyan)}
   footer{padding:0 18px 18px;color:var(--faint);font-size:12px}
 </style>
 </head>
@@ -86,48 +117,87 @@
   <span class="chip" id="connChip"><span class="dot"></span><span id="connText">connecting</span></span>
   <span class="chip" id="updChip">updated —</span>
   <span class="chip" id="latChip">— ms</span>
-  <label class="chip">every
-    <select id="intervalSel">
-      <option value="2000" selected>2s</option>
-      <option value="5000">5s</option>
-      <option value="10000">10s</option>
-    </select>
+  <label class="chip">every <b id="intVal">2s</b>
+    <input type="range" id="intRange" min="1" max="30" step="1" value="2" style="width:90px">
   </label>
+  <button id="refreshBtn">Refresh</button>
   <button id="pauseBtn">Pause</button>
 </header>
-<div id="banner"></div>
+<div id="banner"><span style="flex:1">Can't reach the bridge — showing last known data.</span><button id="retryBtn">Retry</button></div>
+
+<nav class="tabs" id="tabbar">
+  <button data-view="all" class="on">All</button>
+  <button data-view="ov">Overview</button>
+  <button data-view="sys">System</button>
+  <button data-view="db">Darkbloom</button>
+  <button data-view="earn">Earnings</button>
+  <button data-view="events">Events<span class="bdg" id="evtBadge" style="display:none">0</span></button>
+  <button data-view="console">Console</button>
+</nav>
 
 <section class="kpis">
-  <div class="kpi"><div class="k">CPU</div><div class="v" id="kCpu">—</div><div class="s" id="kCpuS">—</div></div>
-  <div class="kpi"><div class="k">Memory</div><div class="v" id="kMem">—</div><div class="s" id="kMemS">—</div></div>
-  <div class="kpi"><div class="k">GPU memory</div><div class="v" id="kGpu">—</div><div class="s" id="kGpuS">—</div></div>
-  <div class="kpi"><div class="k">Net in</div><div class="v" id="kNetIn">—</div><div class="s" id="kNetInS">—</div></div>
-  <div class="kpi"><div class="k">Net out</div><div class="v" id="kNetOut">—</div><div class="s" id="kNetOutS">—</div></div>
-  <div class="kpi"><div class="k">Balance</div><div class="v" id="kBal">—</div><div class="s" id="kBalS">—</div></div>
+  <div class="kpi"><div class="k">CPU</div><div class="v" id="kCpu">—</div><div class="s" id="kCpuS">—</div><canvas id="spCpu"></canvas></div>
+  <div class="kpi"><div class="k">Memory</div><div class="v" id="kMem">—</div><div class="s" id="kMemS">—</div><canvas id="spMem"></canvas></div>
+  <div class="kpi"><div class="k">GPU memory</div><div class="v" id="kGpu">—</div><div class="s" id="kGpuS">—</div><canvas id="spGpu"></canvas></div>
+  <div class="kpi"><div class="k">Net in</div><div class="v" id="kNetIn">—</div><div class="s" id="kNetInS">—</div><canvas id="spNin"></canvas></div>
+  <div class="kpi"><div class="k">Net out</div><div class="v" id="kNetOut">—</div><div class="s" id="kNetOutS">—</div><canvas id="spNout"></canvas></div>
+  <div class="kpi"><div class="k">Balance</div><div class="v" id="kBal">—</div><div class="s" id="kBalS">—</div><canvas id="spBal"></canvas></div>
+  <div class="kpi"><div class="k">Est. / day</div><div class="v" id="kEst">—</div><div class="s" id="kEstS">—</div></div>
   <div class="kpi"><div class="k">Paid jobs</div><div class="v" id="kJobs">—</div><div class="s" id="kJobsS">—</div></div>
-  <div class="kpi"><div class="k">Requests</div><div class="v" id="kReq">—</div><div class="s" id="kReqS">session</div></div>
+  <div class="kpi"><div class="k">Requests</div><div class="v" id="kReq">—</div><div class="s">session</div></div>
   <div class="kpi"><div class="k">Trust</div><div class="v" id="kTrust" style="font-size:16px;padding-top:4px">—</div><div class="s" id="kTrustS">—</div></div>
 </section>
 
-<main>
-  <section class="card s8">
-    <h2>Load history <span class="right" id="histNote">this page session</span></h2>
-    <canvas id="chLoad" height="150"></canvas>
-    <div class="legend">
-      <span><i style="background:var(--blue)"></i>CPU %</span>
-      <span><i style="background:var(--cyan)"></i>Memory %</span>
-      <span><i style="background:var(--green)"></i>GPU mem %</span>
+<main id="grid">
+  <section class="card s8" data-views="ov">
+    <h2>Machine <span class="right"><span class="chip ok" id="heroChip"><span class="dot"></span>ONLINE</span></span></h2>
+    <div style="font-size:20px;font-weight:700" id="heroName">Mac Studio</div>
+    <div class="chips" id="heroChips"></div>
+    <div class="heroStats">
+      <div class="hs"><div class="k">Uptime</div><div class="v" id="hUptime">—</div></div>
+      <div class="hs"><div class="k">Load</div><div class="v" id="hLoad">—</div></div>
+      <div class="hs"><div class="k">Thermal</div><div class="v" id="hThermal">—</div></div>
+      <div class="hs"><div class="k">Net in</div><div class="v" id="hNetIn">—</div></div>
     </div>
-    <canvas id="chNet" height="110" style="margin-top:10px"></canvas>
-    <div class="legend">
-      <span><i style="background:var(--cyan)"></i>Net in</span>
-      <span><i style="background:var(--green)"></i>Net out</span>
-      <span id="netMax"></span>
+    <h2 style="margin-top:16px">LM Studio</h2>
+    <div class="chips" id="lmsChips"></div>
+    <div class="rows" id="lmsRows"></div>
+  </section>
+
+  <section class="card s4" data-views="ov">
+    <h2>Live load</h2>
+    <div class="gauges">
+      <div class="gauge"><svg viewBox="0 0 120 120"><path class="gTrack" fill="none" stroke="#22345a" stroke-width="10" stroke-linecap="round"/><path class="gVal" id="gCpu" fill="none" stroke="#4c9aff" stroke-width="10" stroke-linecap="round"/><text id="gCpuT" x="60" y="68" text-anchor="middle" fill="#e8eef7" font-size="19" font-weight="700">—</text></svg><div class="gl">CPU</div><div class="gs" id="gCpuS">—</div><canvas id="spCpu2"></canvas></div>
+      <div class="gauge"><svg viewBox="0 0 120 120"><path class="gTrack" fill="none" stroke="#22345a" stroke-width="10" stroke-linecap="round"/><path class="gVal" id="gMem" fill="none" stroke="#38bdf8" stroke-width="10" stroke-linecap="round"/><text id="gMemT" x="60" y="68" text-anchor="middle" fill="#e8eef7" font-size="19" font-weight="700">—</text></svg><div class="gl">Memory</div><div class="gs" id="gMemS">—</div><canvas id="spMem2"></canvas></div>
+      <div class="gauge"><svg viewBox="0 0 120 120"><path class="gTrack" fill="none" stroke="#22345a" stroke-width="10" stroke-linecap="round"/><path class="gVal" id="gGpu" fill="none" stroke="#3dd68c" stroke-width="10" stroke-linecap="round"/><text id="gGpuT" x="60" y="68" text-anchor="middle" fill="#e8eef7" font-size="19" font-weight="700">—</text></svg><div class="gl">GPU mem</div><div class="gs" id="gGpuS">—</div><canvas id="spGpu2"></canvas></div>
     </div>
   </section>
 
-  <section class="card s4">
-    <h2>System</h2>
+  <section class="card s8" data-views="ov sys">
+    <h2>History <span class="right">
+      <button class="fbtn winBtn on" data-win="300">5m</button>
+      <button class="fbtn winBtn" data-win="900">15m</button>
+      <button class="fbtn winBtn" data-win="1800">30m</button>
+    </span></h2>
+    <canvas class="chart" id="chLoad" height="140"></canvas>
+    <div class="legend"><span><i style="background:var(--blue)"></i>CPU %</span><span><i style="background:var(--cyan)"></i>Memory %</span><span><i style="background:var(--green)"></i>GPU mem %</span></div>
+    <canvas class="chart" id="chNet" height="100" style="margin-top:10px"></canvas>
+    <div class="legend"><span><i style="background:var(--cyan)"></i>Net in</span><span><i style="background:var(--green)"></i>Net out</span><span id="netNote"></span></div>
+    <canvas class="chart" id="chBal" height="90" style="margin-top:10px"></canvas>
+    <div class="legend"><span><i style="background:var(--green)"></i>Balance $</span><span id="balNote"></span></div>
+  </section>
+
+  <section class="card s4" data-views="ov db">
+    <h2>Darkbloom provider</h2>
+    <div class="chips" id="dbChips"></div>
+    <div class="rows" id="dbStripRows"></div>
+    <div class="note" id="dbTrustNote"></div>
+    <h2 style="margin-top:14px">Warm models</h2>
+    <div class="chips" id="dbWarmChips"></div>
+  </section>
+
+  <section class="card s4" data-views="sys">
+    <h2>System detail</h2>
     <div class="rows" id="sysRows"></div>
     <h2 style="margin-top:14px">CPU split</h2>
     <div class="bar" id="cpuBar"></div>
@@ -139,69 +209,109 @@
     <div id="volList"></div>
   </section>
 
-  <section class="card s4">
-    <h2>Darkbloom provider</h2>
-    <div class="chips" id="dbChips"></div>
+  <section class="card s8" data-views="sys">
+    <h2>Top processes <span class="right"><input type="text" id="procFilter" placeholder="filter…" style="padding:3px 8px"></span></h2>
+    <div id="procList"></div>
+  </section>
+
+  <section class="card s4" data-views="db">
+    <h2>Provider detail</h2>
     <div class="rows" id="dbRows"></div>
     <h2 style="margin-top:14px">Session</h2>
     <div class="rows" id="dbStats"></div>
-    <h2 style="margin-top:14px">Capacity</h2>
+    <h2 style="margin-top:14px">GPU capacity</h2>
     <div class="rows" id="dbCap"></div>
   </section>
 
-  <section class="card s4">
-    <h2>Trust &amp; App Attest</h2>
+  <section class="card s4" data-views="db">
+    <h2>Trust &amp; attestation</h2>
     <div class="rows" id="trustRows"></div>
     <h2 style="margin-top:14px">App Attest</h2>
     <div class="rows" id="attestRows"></div>
     <div class="note" id="trustNote"></div>
-    <h2 style="margin-top:14px">LM Studio</h2>
-    <div class="rows" id="lmsRows"></div>
-    <div class="chips" id="lmsModels"></div>
   </section>
 
-  <section class="card s4">
-    <h2>Autopilot &amp; models</h2>
+  <section class="card s4" data-views="db">
+    <h2>Autopilot</h2>
     <div class="rows" id="apRows"></div>
-    <h2 style="margin-top:14px">Slots</h2>
-    <div id="slotList"></div>
-    <h2 style="margin-top:14px">Resident models</h2>
-    <div id="resList"></div>
+    <h2 style="margin-top:14px">Bridge watch</h2>
+    <div class="rows" id="watchRows"></div>
   </section>
 
-  <section class="card s6">
+  <section class="card s12" data-views="db">
+    <h2>Models <span class="right" id="modelSummary">—</span></h2>
+    <div id="modelMatrix"></div>
+  </section>
+
+  <section class="card s6" data-views="ov earn db">
+    <h2>Estimated returns <span class="right">live · from the ledger</span></h2>
+    <div class="est3">
+      <div class="est"><div class="k">Per day</div><div class="v" id="estDay">—</div></div>
+      <div class="est"><div class="k">Per week</div><div class="v" id="estWeek">—</div></div>
+      <div class="est"><div class="k">Per month</div><div class="v" id="estMonth">—</div></div>
+    </div>
+    <div class="rows" id="estRows"></div>
+  </section>
+
+  <section class="card s6" data-views="earn">
     <h2>Earnings <span class="right">ledger · ground truth</span></h2>
     <div class="big" id="earnBig">—</div>
     <div class="prog"><i id="earnProg" style="width:0%"></i></div>
     <div class="rows" id="earnRows"></div>
-    <h2 style="margin-top:14px">By model <span class="right">recent window</span></h2>
+    <h2 style="margin-top:14px">Window analytics</h2>
+    <div class="rows" id="earnAnalytics"></div>
+  </section>
+
+  <section class="card s6" data-views="earn">
+    <h2>Credits by hour <span class="right">history window</span></h2>
+    <canvas class="chart" id="chHours" height="130"></canvas>
+    <h2 style="margin-top:14px">Earnings by model</h2>
     <div id="perModel"></div>
   </section>
 
-  <section class="card s6">
-    <h2>Recent jobs</h2>
+  <section class="card s6" data-views="earn">
+    <h2>Jobs <span class="right">
+      <select id="jobModelFilter"><option value="">all models</option></select>
+      <button id="csvBtn">CSV</button></span></h2>
     <div id="jobList"></div>
-    <h2 style="margin-top:14px">Top processes</h2>
-    <div id="procList"></div>
   </section>
 
-  <section class="card s8">
+  <section class="card s8" data-views="events">
     <h2>Decisions — state changes <span class="right">bridge log</span></h2>
+    <div class="chips" id="evtFilters">
+      <button class="fbtn evtF on" data-f="">all</button>
+      <button class="fbtn evtF" data-f="darkbloom">darkbloom</button>
+      <button class="fbtn evtF" data-f="earning">earning</button>
+      <button class="fbtn evtF" data-f="trust">trust</button>
+      <button class="fbtn evtF" data-f="lmstudio">lm studio</button>
+      <button class="fbtn evtF" data-f="bridge">bridge</button>
+    </div>
     <div id="decList"></div>
   </section>
 
-  <section class="card s4">
-    <h2>About this page</h2>
+  <section class="card s4" data-views="events console">
+    <h2>Endpoint latency <span class="right">probed</span></h2>
+    <div class="rows" id="probeRows"></div>
+    <h2 style="margin-top:14px">This page</h2>
+    <div class="rows" id="pageRows"></div>
+  </section>
+
+  <section class="card s8" data-views="console">
+    <h2>Commands <span class="right">run on the Mac</span></h2>
+    <div id="cmdList"></div>
+    <h2 style="margin-top:16px">Export</h2>
+    <div class="chips">
+      <button id="snapBtn">Download snapshot (JSON)</button>
+      <button id="csvBtn2">Download jobs (CSV)</button>
+    </div>
+    <h2 style="margin-top:16px">About</h2>
     <div class="rows" id="aboutRows"></div>
-    <p style="color:var(--dim);font-size:12.8px">
-      The detailed web companion to the phone/tablet app. Same bridge, same
-      data — this page just shows everything the app condenses. Read-only;
-      nothing here can change the Mac.
-    </p>
+    <p style="color:var(--dim);font-size:12.8px">The detailed web companion to the phone/tablet app — same bridge, same data, plus the analytics layer. Read-only; nothing here can change the Mac. Shortcuts: 1–7 switch views, R refreshes, P pauses.</p>
   </section>
 </main>
 
-<footer id="foot">Served by the dashboard bridge on this Mac · /api/overview · /api/decisions · /mcp</footer>
+<div id="toasts"></div>
+<footer>Served by the dashboard bridge on this Mac · /api/overview · /api/system · /api/darkbloom · /api/lmstudio · /api/decisions · /mcp</footer>
 
 <script>
 "use strict";
@@ -214,7 +324,7 @@ const fmtRate = b => b == null ? "—" : fmtBytes(b) + "/s";
 const fmtGb = v => v == null ? "—" : `${Number(v).toFixed(1)} GB`;
 const fmtUsd = (v, dp = 3) => { const n = num(v); return n == null ? "—" : "$" + n.toFixed(dp); };
 const fmtInt = v => v == null ? "—" : Math.round(v).toLocaleString("en-US");
-function fmtDur(s) { if (s == null) return "—"; s = Math.max(0, Math.floor(s));
+function fmtDur(s) { if (s == null || !Number.isFinite(s)) return "—"; s = Math.max(0, Math.floor(s));
   const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
   if (d) return `${d}d ${h}h`; if (h) return `${h}h ${m}m`; if (m) return `${m}m`; return `${s}s`; }
 function fmtAgo(ts) { if (!ts) return "—"; const s = Math.max(0, Math.floor(Date.now() / 1000 - ts));
@@ -225,34 +335,85 @@ function niceCeil(v) { if (!(v > 0)) return 1; const p = Math.pow(10, Math.floor
   return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * p; }
 const row = (k, v) => `<div class="row"><span class="k">${esc(k)}</span><span class="v">${v}</span></div>`;
 const pct = v => v == null ? "—" : `${Number(v).toFixed(0)}%`;
+const chip = (txt, cls) => `<span class="chip ${cls}"><span class="dot"></span>${esc(txt)}</span>`;
+const isoTs = s => { const t = Date.parse(s || ""); return Number.isFinite(t) ? t / 1000 : null; };
 
-const MAXH = 240;
-const hist = { cpu: [], mem: [], gpu: [], nin: [], nout: [] };
-let paused = false, intervalMs = 2000, lastOkAt = 0, lastOverview = null;
+/* ---------- history (persisted; charts survive reloads) ---------- */
+const HKEY = "dashHistV2", MAXH = 1200;
+let hist = { cpu: [], mem: [], gpu: [], nin: [], nout: [], bal: [] };
+try { const saved = JSON.parse(localStorage.getItem(HKEY) || "null");
+  if (saved && Array.isArray(saved.cpu)) hist = saved; } catch (e) {}
+let histSaveAt = 0;
+function pushHist(key, v) {
+  if (v == null || !Number.isFinite(v)) return;
+  const a = hist[key], now = Date.now() / 1000;
+  if (a.length && now - a[a.length - 1][0] < 1.5) a[a.length - 1] = [now, v];
+  else a.push([now, v]);
+  if (a.length > MAXH) a.splice(0, a.length - MAXH);
+  if (now - histSaveAt > 10) { histSaveAt = now;
+    try { localStorage.setItem(HKEY, JSON.stringify(hist)); } catch (e) {} }
+}
 
-function drawChart(cv, series, fixedMax) {
+/* ---------- charts ---------- */
+let winSec = 300;
+function drawChart(cv, series, fixedMax, fmtFn) {
+  const fmt = fmtFn || (v => fmtBytes(v));
   const dpr = window.devicePixelRatio || 1;
   const w = cv.clientWidth, h = cv.clientHeight;
   if (!w) return;
-  if (cv.width !== w * dpr) { cv.width = w * dpr; cv.height = h * dpr; }
+  if (cv.width !== Math.round(w * dpr)) { cv.width = w * dpr; cv.height = h * dpr; }
   const ctx = cv.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, h);
+  const now = Date.now() / 1000, t0 = now - winSec;
   let max = fixedMax || 0;
-  if (!fixedMax) { for (const s of series) for (const v of s.data) if (v != null && v > max) max = v;
-    max = niceCeil(max * 1.1); }
+  if (!fixedMax) for (const s of series) for (const [t, v] of s.data)
+    if (t >= t0 && v > max) max = v;
+  if (!fixedMax) max = niceCeil(max * 1.1);
   ctx.strokeStyle = "#1b2a47"; ctx.fillStyle = "#62769a"; ctx.font = "10px sans-serif"; ctx.lineWidth = 1;
   for (let i = 1; i <= 3; i++) { const y = h - 14 - (h - 22) * i / 3;
-    ctx.beginPath(); ctx.moveTo(34, y); ctx.lineTo(w, y); ctx.stroke();
-    ctx.fillText(fixedMax ? `${Math.round(max * i / 3)}` : `${fmtBytes(max * i / 3)}`, 2, y + 3); }
+    ctx.beginPath(); ctx.moveTo(40, y); ctx.lineTo(w, y); ctx.stroke();
+    ctx.fillText(fixedMax ? `${Math.round(max * i / 3)}` : fmt(max * i / 3), 2, y + 3); }
   for (const s of series) {
-    const d = s.data; if (d.length < 2) continue;
     ctx.strokeStyle = s.color; ctx.lineWidth = 1.6; ctx.beginPath();
-    const step = (w - 36) / (MAXH - 1);
-    d.forEach((v, i) => { if (v == null) return;
-      const x = 34 + i * step, y = h - 14 - (h - 22) * Math.min(1, v / max);
-      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y); });
+    let started = false;
+    for (const [t, v] of s.data) { if (t < t0) continue;
+      const x = 40 + (t - t0) / winSec * (w - 42), y = h - 14 - (h - 22) * Math.min(1, v / max);
+      started ? ctx.lineTo(x, y) : ctx.moveTo(x, y); started = true; }
     ctx.stroke();
   }
+}
+function drawSpark(cv, data, color, maxV) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = cv.clientWidth, h = cv.clientHeight;
+  if (!w || data.length < 2) return;
+  if (cv.width !== Math.round(w * dpr)) { cv.width = w * dpr; cv.height = h * dpr; }
+  const ctx = cv.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  const vals = data.slice(-90).map(p => p[1]);
+  const max = maxV || niceCeil(Math.max(...vals) * 1.1);
+  ctx.strokeStyle = color; ctx.lineWidth = 1.4; ctx.beginPath();
+  vals.forEach((v, i) => { const x = i / (vals.length - 1) * w, y = h - 2 - (h - 5) * Math.min(1, v / max);
+    i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+  ctx.stroke();
+}
+function drawBars(cv, buckets) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = cv.clientWidth, h = cv.clientHeight;
+  if (!w || !buckets.length) return;
+  if (cv.width !== Math.round(w * dpr)) { cv.width = w * dpr; cv.height = h * dpr; }
+  const ctx = cv.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  const max = niceCeil(Math.max(...buckets.map(b => b.v)) * 1.05);
+  const bw = w / buckets.length;
+  ctx.font = "10px sans-serif"; ctx.fillStyle = "#62769a";
+  buckets.forEach((b, i) => {
+    const bh = (h - 30) * b.v / max, x = i * bw + 6, y = h - 18 - bh;
+    ctx.fillStyle = "#3dd68c"; ctx.fillRect(x, y, bw - 12, bh);
+    ctx.fillStyle = "#9db1cc"; ctx.textAlign = "center";
+    ctx.fillText("$" + b.v.toFixed(3), x + (bw - 12) / 2, y - 4);
+    ctx.fillStyle = "#62769a"; ctx.fillText(b.label, x + (bw - 12) / 2, h - 4);
+  });
+  ctx.textAlign = "left";
 }
 function drawCharts() {
   drawChart($("chLoad"), [
@@ -260,19 +421,70 @@ function drawCharts() {
     { data: hist.gpu, color: "#3dd68c" }], 100);
   drawChart($("chNet"), [
     { data: hist.nin, color: "#38bdf8" }, { data: hist.nout, color: "#3dd68c" }], 0);
+  drawChart($("chBal"), [{ data: hist.bal, color: "#3dd68c" }], 0, v => "$" + v.toFixed(2));
+  drawSpark($("spCpu"), hist.cpu, "#4c9aff", 100); drawSpark($("spCpu2"), hist.cpu, "#4c9aff", 100);
+  drawSpark($("spMem"), hist.mem, "#38bdf8", 100); drawSpark($("spMem2"), hist.mem, "#38bdf8", 100);
+  drawSpark($("spGpu"), hist.gpu, "#3dd68c", 100); drawSpark($("spGpu2"), hist.gpu, "#3dd68c", 100);
+  drawSpark($("spNin"), hist.nin, "#38bdf8"); drawSpark($("spNout"), hist.nout, "#3dd68c");
+  drawSpark($("spBal"), hist.bal, "#3dd68c");
 }
+
+/* ---------- gauges ---------- */
+function arcD(cx, cy, r, fromDeg, toDeg) {
+  const p = a => [cx + r * Math.cos(a * Math.PI / 180), cy + r * Math.sin(a * Math.PI / 180)];
+  const [x1, y1] = p(fromDeg), [x2, y2] = p(toDeg);
+  return `M ${x1.toFixed(1)} ${y1.toFixed(1)} A ${r} ${r} 0 ${toDeg - fromDeg > 180 ? 1 : 0} 1 ${x2.toFixed(1)} ${y2.toFixed(1)}`;
+}
+const ARC_LEN = 2 * Math.PI * 50 * 240 / 360;
+function initGauges() {
+  document.querySelectorAll(".gTrack").forEach(p => p.setAttribute("d", arcD(60, 60, 50, 150, 390)));
+  ["gCpu", "gMem", "gGpu"].forEach(id => { const p = $(id);
+    p.setAttribute("d", arcD(60, 60, 50, 150, 390));
+    p.setAttribute("stroke-dasharray", `0 ${ARC_LEN}`); });
+}
+function setGauge(id, txtId, subId, frac, text, sub) {
+  const p = $(id); if (!p) return;
+  const f = Math.max(0, Math.min(1, frac || 0));
+  p.setAttribute("stroke-dasharray", `${(f * ARC_LEN).toFixed(1)} ${ARC_LEN}`);
+  $(txtId).textContent = text; $(subId).textContent = sub;
+}
+</script>
+
+<script>
+"use strict";
+let paused = false, intervalMs = 2000, lastOkAt = 0, lastOverview = null;
+let pageStart = Date.now(), pollCount = 0, failCount = 0, latSum = 0;
+let openBalance = null, openJobs = null;
+let lastHist = [];   // earnings history window (for jobs table / analytics)
 
 function render(ov) {
   lastOverview = ov;
   const sys = ov.system || {}, db = ov.darkbloom || {}, lms = ov.lmstudio || {};
-  const earn = db.earnings || {};
+  const earn = db.earnings || {}, est = earn.estimates || null;
   const mem = sys.memory || {}, cpu = sys.cpu || {}, net = sys.network || {};
   const cap = db.capacity || {}, gpuPct = cap.total_memory_gb && cap.gpu_active_gb != null
     ? cap.gpu_active_gb / cap.total_memory_gb * 100 : null;
+  const bal = num(earn.balance_usd);
+  if (openBalance == null && bal != null) { openBalance = bal; openJobs = earn.jobs_in_history; }
 
   $("title").textContent = sys.computer_name || "Mac Studio";
   $("subtitle").textContent =
     `${sys.chip || ""} · ${sys.model || ""} · macOS ${sys.macos_version || ""} · bridge v${(ov.bridge || {}).version || "?"}`;
+
+  // hero
+  $("heroName").textContent = sys.computer_name || "Mac Studio";
+  $("heroChips").innerHTML =
+    `<span class="tag"><b>${esc(sys.cpu_cores ?? "—")}</b>&nbsp;CPU cores</span>` +
+    `<span class="tag"><b>${esc(sys.gpu_cores ?? "—")}</b>&nbsp;GPU cores</span>` +
+    `<span class="tag">${esc(sys.model || "")}</span>` +
+    `<span class="tag">${esc(sys.chip || "")}</span>`;
+  $("hUptime").textContent = fmtDur(sys.uptime_seconds);
+  $("hLoad").textContent = (sys.load_avg || []).map(v => Number(v).toFixed(2)).join(" ");
+  $("hThermal").textContent = (sys.thermal || {}).state || "—";
+  $("hNetIn").textContent = fmtRate(net.rate_in_bps);
+  const hc = $("heroChip");
+  hc.className = "chip " + (sys ? "ok" : "bad");
+  hc.innerHTML = `<span class="dot"></span>${sys ? "ONLINE" : "OFFLINE"}`;
 
   // KPIs
   $("kCpu").textContent = pct(cpu.used_pct);
@@ -284,20 +496,55 @@ function render(ov) {
   $("kNetIn").textContent = fmtRate(net.rate_in_bps); $("kNetInS").textContent = `${fmtBytes(net.bytes_in)} total`;
   $("kNetOut").textContent = fmtRate(net.rate_out_bps); $("kNetOutS").textContent = `${fmtBytes(net.bytes_out)} total`;
   $("kBal").textContent = fmtUsd(earn.balance_usd);
-  $("kBalS").textContent = earn.balance_usd != null ? `${fmtUsd(earn.withdrawable_usd)} withdrawable` : "ledger unavailable";
+  $("kBalS").textContent = bal != null && openBalance != null && bal !== openBalance
+    ? `${fmtUsd(earn.withdrawable_usd)} wd · +${fmtUsd(bal - openBalance, 4)} here` : `${fmtUsd(earn.withdrawable_usd)} withdrawable`;
+  $("kEst").textContent = est ? fmtUsd(est.per_day_usd, 2) : "—";
+  $("kEstS").textContent = est ? `${fmtUsd(est.per_week_usd, 2)}/wk · ${fmtUsd(est.per_month_usd, 2)}/mo` : "not enough data";
   $("kJobs").textContent = fmtInt(earn.jobs_in_history);
-  $("kJobsS").textContent = db.last_credit_at ? `last credit ${fmtAgo(db.last_credit_at)}` : "in history window";
+  $("kJobsS").textContent = db.last_credit_at ? `last credit ${fmtAgo(db.last_credit_at)}` : "in window";
   $("kReq").textContent = fmtInt((db.stats || {}).requests_served);
   $("kTrust").textContent = (db.trust || {}).level || "—";
   $("kTrustS").textContent = (db.trust || {}).status || "";
 
-  // System card
+  // gauges
+  setGauge("gCpu", "gCpuT", "gCpuS", (cpu.used_pct || 0) / 100, pct(cpu.used_pct), `${sys.cpu_cores ?? ""} cores`);
+  setGauge("gMem", "gMemT", "gMemS", (mem.used_pct || 0) / 100, pct(mem.used_pct), fmtBytes(mem.used_bytes));
+  setGauge("gGpu", "gGpuT", "gGpuS", (gpuPct || 0) / 100, pct(gpuPct), fmtGb(cap.gpu_active_gb));
+
+  // darkbloom strip (overview)
+  $("dbChips").innerHTML =
+    chip(db.running ? "RUNNING" : "STOPPED", db.running ? "ok" : "bad") +
+    (db.running ? chip(db.earning ? "EARNING" : "NOT EARNING YET", db.earning ? "ok" : "warn") : "") +
+    chip("trust: " + ((db.trust || {}).level || "—"), (db.trust || {}).level === "hardware" ? "ok" : "warn");
+  $("dbStripRows").innerHTML =
+    row("Balance", fmtUsd(earn.balance_usd, 4)) +
+    row("Paid jobs (window)", fmtInt(earn.jobs_in_history)) +
+    row("Requests (session)", fmtInt((db.stats || {}).requests_served)) +
+    row("Tokens (session)", fmtInt((db.stats || {}).tokens_generated)) +
+    row("Last credit", db.last_credit_at ? fmtAgo(db.last_credit_at) : "—") +
+    row("Currently serving", esc(db.current_model || "—"));
+  $("dbTrustNote").textContent = db.verification_pending
+    ? "Trust: self-signed — verification pending on Darkbloom's side; paid jobs still land in the ledger." : "";
+  $("dbWarmChips").innerHTML = (db.warm_models || []).map(m =>
+    `<span class="tag">${m === db.current_model ? "● " : ""}${esc(m)}</span>`).join("") ||
+    '<span class="tag">none warm</span>';
+
+  // LM Studio
+  $("lmsChips").innerHTML = chip(lms.reachable ? "LOADED" : "UNREACHABLE", lms.reachable ? "ok" : "bad") +
+    (lms.models || []).map(m => `<span class="tag">${esc(typeof m === "string" ? m : (m.id || m.name || "?"))}</span>`).join("");
+  $("lmsRows").innerHTML =
+    row("Reachable", lms.reachable ? "yes" : "no") +
+    row("Loaded models", esc(lms.loaded_count ?? 0)) +
+    (lms.reachable ? "" : row("Error", esc(String(lms.error || "").slice(0, 90))));
+
+  // system detail
   const th = sys.thermal || {};
   $("sysRows").innerHTML =
     row("Uptime", esc(fmtDur(sys.uptime_seconds))) +
     row("Load average", esc((sys.load_avg || []).map(v => Number(v).toFixed(2)).join(" · "))) +
     row("Thermal", `${esc(th.state || "—")}${th.cpu_speed_limit_pct != null ? ` · CPU limit ${esc(th.cpu_speed_limit_pct)}%` : ""}`) +
-    row("CPU cores", esc(sys.cpu_cores)) + row("GPU cores", esc(sys.gpu_cores));
+    row("CPU cores", esc(sys.cpu_cores)) + row("GPU cores", esc(sys.gpu_cores)) +
+    row("Chip", esc(sys.chip || "—")) + row("macOS", esc(sys.macos_version || "—"));
   $("cpuBar").innerHTML =
     `<i style="width:${cpu.user_pct || 0}%;background:#4c9aff"></i>` +
     `<i style="width:${cpu.sys_pct || 0}%;background:#38bdf8"></i>` +
@@ -314,78 +561,123 @@ function render(ov) {
     row("Active", fmtBytes(mem.active_bytes)) + row("Wired", fmtBytes(mem.wired_bytes)) +
     row("Compressed", fmtBytes(mem.compressed_bytes)) + row("Inactive", fmtBytes(mem.inactive_bytes)) +
     row("Free", fmtBytes(mem.free_bytes)) +
+    row("File-backed", fmtBytes(mem.file_backed_bytes)) +
+    row("Anonymous", fmtBytes(mem.anonymous_bytes)) +
+    row("Speculative", fmtBytes(mem.speculative_bytes)) +
     row("Swap used", sw.used_mb != null ? `${fmtBytes(sw.used_mb * 1048576)} of ${fmtBytes((sw.total_mb || 0) * 1048576)}` : "—");
   $("volList").innerHTML = (sys.disks || []).map(d => `
     <div class="row"><span class="k">${esc(d.label)} <span style="color:var(--faint)">${esc(d.path)}</span></span>
     <span class="v">${fmtBytes(d.free_bytes)} free · ${Number(d.used_pct || 0).toFixed(0)}%</span></div>
     <div class="bar single"><i style="width:${d.used_pct || 0}%;background:${(d.used_pct || 0) > 90 ? "#ff6b6b" : (d.used_pct || 0) > 80 ? "#ffb84d" : "#4c9aff"}"></i></div>`).join("");
 
-  // Darkbloom card
-  const chip = (txt, cls) => `<span class="chip ${cls}"><span class="dot"></span>${esc(txt)}</span>`;
-  $("dbChips").innerHTML =
-    chip(db.running ? "RUNNING" : "STOPPED", db.running ? "ok" : "bad") +
-    (db.running ? chip(db.earning ? "EARNING" : (db.lifecycle || "READY").toUpperCase(), db.earning ? "ok" : "warn") : "") +
-    chip("trust: " + ((db.trust || {}).level || "—"), (db.trust || {}).level === "hardware" ? "ok" : "warn");
+  trackNet(net);
+  renderProcesses(sys.top_processes || []);
+  renderDarkbloom(db, earn, est);
+  renderEarnings(earn, est, bal);
+  renderModels(db, earn);
+
+  pushHist("cpu", cpu.used_pct); pushHist("mem", mem.used_pct); pushHist("gpu", gpuPct);
+  pushHist("nin", net.rate_in_bps); pushHist("nout", net.rate_out_bps); pushHist("bal", bal);
+  drawCharts();
+  $("netNote").textContent = `session here: ↓ ${fmtBytes(sessionNet.bytesIn)} ↑ ${fmtBytes(sessionNet.bytesOut)}`;
+  $("balNote").textContent = openBalance != null && bal != null
+    ? `+${fmtUsd(bal - openBalance, 4)} since this page opened` : "";
+
+  $("aboutRows").innerHTML =
+    row("Bridge", `v${esc((ov.bridge || {}).version || "?")} · up ${esc(fmtDur((ov.bridge || {}).uptime_seconds))}`) +
+    row("Data age", ov.generated_at ? fmtAgo(ov.generated_at) : "—");
+  $("watchRows").innerHTML =
+    row("State file", db.provider_state_written_at ? `written ${fmtAgo(db.provider_state_written_at)}` : "—") +
+    row("Decisions log", "state changes under Events");
+}
+
+const sessionNet = { bytesIn: 0, bytesOut: 0, lastIn: null, lastOut: null };
+function trackNet(net) {
+  if (sessionNet.lastIn != null && net.bytes_in != null)
+    sessionNet.bytesIn += Math.max(0, net.bytes_in - sessionNet.lastIn);
+  if (sessionNet.lastOut != null && net.bytes_out != null)
+    sessionNet.bytesOut += Math.max(0, net.bytes_out - sessionNet.lastOut);
+  sessionNet.lastIn = net.bytes_in; sessionNet.lastOut = net.bytes_out;
+}
+
+function renderProcesses(procs) {
+  const f = ($("procFilter").value || "").toLowerCase();
+  const list = procs.filter(p => !f || (p.name || "").toLowerCase().includes(f));
+  const maxCpu = Math.max(1, ...procs.map(p => p.cpu_pct || 0));
+  $("procList").innerHTML = `<table><tr><th>Process</th><th class="num">CPU</th><th class="num">MEM</th><th class="num">Time</th></tr>${
+    list.map(p => `<tr><td><span class="procbar"><i style="width:${(p.cpu_pct || 0) / maxCpu * 100}%"></i></span>${esc(p.name)}</td>
+      <td class="num">${pct(p.cpu_pct)}</td><td class="num">${pct(p.mem_pct)}</td>
+      <td class="num">${esc(p.elapsed || "")}</td></tr>`).join("")}</table>`;
+}
+
+function renderDarkbloom(db, earn, est) {
   $("dbRows").innerHTML =
     row("Version", esc(db.version)) + row("PID", esc(db.pid)) +
     row("Uptime", esc(fmtDur(db.uptime_seconds))) +
     row("Lifecycle", esc(db.lifecycle || "—")) +
     row("Current model", esc(db.current_model || "—")) +
-    row("State file", db.provider_state_written_at ? `written ${fmtAgo(db.provider_state_written_at)}` : "—") +
-    row("Warm models", esc((db.warm_models || []).join(", ") || "—"));
+    row("State file", db.provider_state_written_at ? `written ${fmtAgo(db.provider_state_written_at)}` : "—");
   const st = db.stats || {};
   $("dbStats").innerHTML =
     row("Requests served", fmtInt(st.requests_served)) +
     row("Tokens generated", fmtInt(st.tokens_generated)) +
     row("Usage gaps", esc(st.usage_gaps ?? "—")) +
     row("Last credit", db.last_credit_at ? fmtAgo(db.last_credit_at) : "—");
+  const cap = db.capacity || {};
   $("dbCap").innerHTML =
-    row("GPU active", fmtGb(cap.gpu_active_gb)) + row("GPU cache", fmtGb(cap.gpu_cache_gb)) +
-    row("Free for load", fmtGb(cap.free_for_load_gb)) +
+    row("Total", fmtGb(cap.total_memory_gb)) + row("Active", fmtGb(cap.gpu_active_gb)) +
+    row("Cache", fmtGb(cap.gpu_cache_gb)) +
+    row("Free for new loads", fmtGb(cap.free_for_load_gb)) +
     row("Load usable", fmtGb(cap.load_usable_gb)) +
-    row("Load headroom", fmtGb(cap.load_headroom_gb)) +
-    row("Total memory", fmtGb(cap.total_memory_gb));
-
-  // Trust & attest
+    row("Load headroom", fmtGb(cap.load_headroom_gb));
   const tr = db.trust || {}, at = db.app_attest || {};
   $("trustRows").innerHTML =
-    row("Level", esc(tr.level || "—")) + row("Status", esc(tr.status || "—")) +
+    row("Trust level", esc(tr.level || "—")) + row("Status", esc(tr.status || "—")) +
     row("Reason", esc(tr.reason || "—")) + row("Path", esc(tr.path || "—")) +
     row("Session expires", tr.session_expires_at ? `${fmtClock(tr.session_expires_at)} (${fmtDur(tr.session_expires_at - Date.now() / 1000)} left)` : "—") +
     row("Verification pending", db.verification_pending ? "yes" : "no");
   $("attestRows").innerHTML =
     row("Attested", at.attested == null ? "—" : (at.attested ? "yes" : "no")) +
-    row("Key age", esc(fmtDur(at.key_age_seconds))) +
-    row("Last success", at.last_success_age_seconds == null ? "—" : fmtAgo(Date.now() / 1000 - at.last_success_age_seconds)) +
+    row("Attest key age", esc(fmtDur(at.key_age_seconds))) +
+    row("Last Apple success", at.last_success_age_seconds == null ? "—" : fmtAgo(Date.now() / 1000 - at.last_success_age_seconds)) +
     row("Consecutive failures", esc(at.consecutive_failures ?? "—")) +
     row("Generations (24h)", esc(at.generations_last_24h ?? "—"));
   $("trustNote").textContent = db.verification_pending
-    ? "Trust promotion is decided by Darkbloom's coordinator — the ledger is ground truth; paid jobs land either way."
-    : "";
-  $("lmsRows").innerHTML =
-    row("Reachable", lms.reachable ? "yes" : "no") +
-    row("Loaded models", esc(lms.loaded_count ?? 0)) +
-    (lms.reachable ? "" : row("Error", esc(String(lms.error || "").slice(0, 90))));
-  $("lmsModels").innerHTML = (lms.models || []).map(m =>
-    `<span class="tag">${esc(typeof m === "string" ? m : (m.id || m.name || "?"))}</span>`).join("");
-
-  // Autopilot & models
+    ? "Trust promotion is decided by Darkbloom's coordinator — the ledger is ground truth; paid jobs land either way." : "";
   const ap = db.autopilot || {};
   $("apRows").innerHTML =
-    row("Phase", esc(ap.phase || "—")) + row("Enabled", esc(ap.enabled ?? "—")) +
-    row("Active", esc(ap.active ?? "—")) + row("Observe only", esc(ap.observe_only ?? "—")) +
+    row("Phase", esc(ap.phase || "—")) + row("Mode", ap.observe_only ? "shadow (observe only)" : "active") +
+    row("Enabled", esc(ap.enabled ?? "—")) + row("Active", esc(ap.active ?? "—")) +
     row("Paused", esc(ap.paused ?? "—")) + row("Max model slots", esc(ap.max_model_slots ?? "—"));
-  $("slotList").innerHTML = (db.slots || []).length ? `<table><tr><th>Model</th><th>MTP</th><th>KV</th></tr>${
-    (db.slots || []).map(s => `<tr><td>${esc(s.model)}</td>
-      <td>${s.mtp_enabled ? (s.mtp_active ? "on · active" : "on") : "off"}</td><td>${esc(s.kv_backend || "—")}</td></tr>`).join("")}</table>`
-    : '<div class="rows"><div class="row"><span class="k">none</span></div></div>';
-  $("resList").innerHTML = (db.resident_models || []).length ? `<table><tr><th>Model</th><th class="num">Resident</th><th class="num">Idle</th></tr>${
-    (db.resident_models || []).map(r => `<tr><td>${esc(r.model)}</td>
-      <td class="num">${fmtGb(r.resident_gb)}</td><td class="num">${esc(fmtDur(r.idle_seconds))}</td></tr>`).join("")}</table>`
-    : '<div class="rows"><div class="row"><span class="k">none resident</span></div></div>';
+}
 
-  // Earnings
-  const bal = num(earn.balance_usd);
+function renderModels(db, earn) {
+  const pm = earn.per_model_recent || {};
+  const residents = {}; (db.resident_models || []).forEach(r => residents[r.model] = r);
+  const slots = {}; (db.slots || []).forEach(s => slots[s.model] = s);
+  const names = new Set([...(db.advertised_models || []), ...(db.warm_models || []),
+    ...Object.keys(residents), ...Object.keys(slots), ...Object.keys(pm)]);
+  const warm = new Set(db.warm_models || []);
+  $("modelSummary").textContent = `${warm.size} warm of ${(db.advertised_models || []).length} advertised`;
+  const rowsHtml = [...names].sort().map(m => {
+    const r = residents[m], s = slots[m], e = pm[m];
+    const state = r || warm.has(m) ? '<span style="color:var(--green);font-weight:700">WARM</span>'
+      : '<span style="color:var(--faint);font-weight:700">COLD</span>';
+    const mtp = s ? (s.mtp_enabled ? (s.mtp_active ? "on · active" : "on · idle") : "off") : "—";
+    return `<tr><td>${m === db.current_model ? "● " : ""}${esc(m)}</td><td>${state}</td>
+      <td class="num">${r ? `${fmtGb(r.resident_gb)} <span style="color:var(--faint)">(w ${fmtGb(r.weights_gb)})</span>` : "—"}</td>
+      <td class="num">${r ? esc(fmtDur(r.idle_seconds)) : "—"}</td>
+      <td>${esc(mtp)}</td><td>${esc(s ? (s.kv_backend || "—") : "—")}</td>
+      <td class="num">${e ? fmtInt(e.jobs) : "—"}</td>
+      <td class="num">${e ? fmtUsd(e.micro_usd / 1e6, 4) : "—"}</td></tr>`;
+  }).join("");
+  $("modelMatrix").innerHTML = names.size
+    ? `<table><tr><th>Model</th><th>State</th><th class="num">Resident</th><th class="num">Idle</th><th>MTP</th><th>Engine</th><th class="num">Jobs</th><th class="num">Earned</th></tr>${rowsHtml}</table>`
+    : '<div class="rows"><div class="row"><span class="k">no models reported</span></div></div>';
+}
+
+function renderEarnings(earn, est, bal) {
+  lastHist = earn.history || earn.recent || [];
   $("earnBig").textContent = fmtUsd(earn.balance_usd, 4);
   $("earnProg").style.width = bal == null ? "0%" : `${Math.min(100, bal * 100)}%`;
   $("earnRows").innerHTML =
@@ -393,86 +685,281 @@ function render(ov) {
     row("Lifetime total", fmtUsd(earn.total_usd, 4)) +
     row("To $1 withdrawal minimum", bal == null ? "—" : fmtUsd(Math.max(0, 1 - bal), 3)) +
     row("Base rewards (recent)", fmtUsd((earn.base_rewards_micro_usd_recent || 0) / 1e6, 4)) +
-    row("Jobs in history window", `${fmtInt(earn.jobs_in_history)} (limit ${esc(earn.history_limit ?? "—")})`);
+    row("Paid jobs (recent history)", fmtInt(earn.jobs_in_history)) +
+    row("Last credit", earn.last_credit_at ? fmtAgo(earn.last_credit_at) : "—");
+
+  // estimates — live, from the bridge's snapshot ledger
+  if (est) {
+    $("estDay").textContent = fmtUsd(est.per_day_usd, 2);
+    $("estWeek").textContent = fmtUsd(est.per_week_usd, 2);
+    $("estMonth").textContent = fmtUsd(est.per_month_usd, 2);
+    const b = est.basis || {}, comps = est.components || {}, spans = b.spans || {};
+    const compRow = (label, key) => comps[key] != null
+      ? row(label, `${fmtUsd(comps[key], 2)}/day <span style="color:var(--faint)">(${esc(fmtDur(spans[key]))})</span>`) : "";
+    const eta = bal != null && est.per_day_usd > 0 && bal < 1
+      ? fmtDur((1 - bal) / est.per_day_usd * 86400) : null;
+    let sessRate = "—";
+    if (openBalance != null && bal != null) {
+      const hrs = (Date.now() - pageStart) / 3600000;
+      if (hrs > 0.01) sessRate = fmtUsd((bal - openBalance) / hrs, 3) + "/hr since page opened";
+    }
+    $("estRows").innerHTML =
+      row("Basis", esc(b.label || "—")) +
+      compRow("Realized · last hour", "last_hour") +
+      compRow("Realized · last 24h", "last_24h") +
+      compRow("Realized · last 7d", "last_7d") +
+      (b.window_usd != null ? row("API window", `${fmtUsd(b.window_usd, 4)} across ${esc(b.window_credits ?? "—")} credits in ${esc(fmtDur(b.window_seconds))}`) : "") +
+      (est.tracked_since ? row("Ledger tracked since", esc(new Date(est.tracked_since * 1000).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }))) : "") +
+      row("Live session rate", sessRate) +
+      (eta ? row("To $1 at this rate", `~${eta}`) : "");
+  } else {
+    $("estDay").textContent = $("estWeek").textContent = $("estMonth").textContent = "—";
+    $("estRows").innerHTML = row("Basis", "not enough credits in the window yet — estimates appear once the recent ledger spans a minute or more");
+  }
+
+  // window analytics from the full history
+  const paid = lastHist.filter(j => j.model !== "base_reward");
+  const times = lastHist.map(j => isoTs(j.created_at)).filter(x => x != null);
+  const spanH = times.length > 1 ? (Math.max(...times) - Math.min(...times)) / 3600 : 0;
+  const winUsd = lastHist.reduce((a, j) => a + (j.amount_micro_usd || 0), 0) / 1e6;
+  const avgIn = paid.length ? paid.reduce((a, j) => a + (j.prompt_tokens || 0), 0) / paid.length : null;
+  const avgOut = paid.length ? paid.reduce((a, j) => a + (j.completion_tokens || 0), 0) / paid.length : null;
+  $("earnAnalytics").innerHTML =
+    row("Credits in window", fmtInt(lastHist.length)) +
+    row("Window span", spanH ? fmtDur(spanH * 3600) : "—") +
+    row("Earned in window", fmtUsd(winUsd, 4)) +
+    row("Paid jobs / hour", spanH ? (paid.length / spanH).toFixed(1) : "—") +
+    row("Avg per paid job", paid.length ? fmtUsd(paid.reduce((a, j) => a + (j.amount_micro_usd || 0), 0) / paid.length / 1e6, 4) : "—") +
+    row("Avg tokens in / out", avgIn != null ? `${fmtInt(avgIn)} / ${fmtInt(avgOut)}` : "—");
+
+  // per model (+ base reward row, like the app)
   const pm = earn.per_model_recent || {};
-  $("perModel").innerHTML = Object.keys(pm).length ? `<table><tr><th>Model</th><th class="num">Jobs</th><th class="num">Earned</th></tr>${
-    Object.entries(pm).sort((a, b) => b[1].micro_usd - a[1].micro_usd)
-      .map(([m, s]) => `<tr><td>${esc(m)}</td><td class="num">${fmtInt(s.jobs)}</td>
-        <td class="num">${fmtUsd(s.micro_usd / 1e6, 4)}</td></tr>`).join("")}</table>`
+  const totalMicro = Object.values(pm).reduce((a, s) => a + s.micro_usd, 0) + (earn.base_rewards_micro_usd_recent || 0);
+  const pmRows = Object.entries(pm).sort((a, b) => b[1].micro_usd - a[1].micro_usd).map(([m, s]) => `
+    <tr><td>${esc(m)}</td><td class="num">${fmtInt(s.jobs)}</td><td class="num">${fmtUsd(s.micro_usd / 1e6, 4)}</td>
+    <td style="width:34%"><div class="bar single" style="margin:0"><i style="width:${totalMicro ? s.micro_usd / totalMicro * 100 : 0}%;background:#3dd68c"></i></div></td></tr>`).join("");
+  const baseRow = (earn.base_rewards_micro_usd_recent || 0) > 0 ? `
+    <tr><td>Base reward (online floor)</td><td class="num">—</td><td class="num">${fmtUsd(earn.base_rewards_micro_usd_recent / 1e6, 4)}</td>
+    <td><div class="bar single" style="margin:0"><i style="width:${totalMicro ? earn.base_rewards_micro_usd_recent / totalMicro * 100 : 0}%;background:#62769a"></i></div></td></tr>` : "";
+  $("perModel").innerHTML = (pmRows || baseRow)
+    ? `<table><tr><th>Model</th><th class="num">Jobs</th><th class="num">Earned</th><th>Share</th></tr>${pmRows}${baseRow}</table>`
     : '<div class="rows"><div class="row"><span class="k">no jobs in window</span></div></div>';
-  $("jobList").innerHTML = (earn.recent || []).length ? `<table><tr><th>Time</th><th>Model</th><th class="num">In</th><th class="num">Out</th><th class="num">Amount</th></tr>${
-    (earn.recent || []).map(j => `<tr><td>${esc(j.created_at ? new Date(j.created_at).toLocaleTimeString("en-US", {hour: "numeric", minute: "2-digit"}) : "—")}</td>
-      <td>${esc(j.model)}</td><td class="num">${fmtInt(j.prompt_tokens)}</td>
+
+  // credits by hour
+  const buckets = {};
+  lastHist.forEach(j => { const t = isoTs(j.created_at); if (t == null) return;
+    const d = new Date(t * 1000); const key = d.getHours();
+    const label = d.toLocaleTimeString("en-US", { hour: "numeric" });
+    buckets[key] = buckets[key] || { label, v: 0, t };
+    buckets[key].v += (j.amount_micro_usd || 0) / 1e6; });
+  const ordered = Object.values(buckets).sort((a, b) => a.t - b.t).slice(-8);
+  drawBars($("chHours"), ordered);
+
+  renderJobs();
+}
+
+function renderJobs() {
+  const sel = $("jobModelFilter");
+  const models = [...new Set(lastHist.map(j => j.model))].sort();
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">all models</option>' +
+    models.map(m => `<option ${m === cur ? "selected" : ""}>${esc(m)}</option>`).join("");
+  const f = sel.value;
+  const list = lastHist.filter(j => !f || j.model === f);
+  $("jobList").innerHTML = list.length ? `<table><tr><th>Time</th><th>Model</th><th class="num">In</th><th class="num">Out</th><th class="num">Amount</th></tr>${
+    list.map(j => `<tr><td>${esc(j.created_at ? new Date(j.created_at).toLocaleTimeString("en-US", {hour: "numeric", minute: "2-digit"}) : "—")}</td>
+      <td>${j.model === "base_reward" ? "Base reward" : esc(j.model)}</td><td class="num">${fmtInt(j.prompt_tokens)}</td>
       <td class="num">${fmtInt(j.completion_tokens)}</td>
       <td class="num">${fmtUsd(j.amount_micro_usd != null ? j.amount_micro_usd / 1e6 : j.amount_usd, 4)}</td></tr>`).join("")}</table>`
     : '<div class="rows"><div class="row"><span class="k">none</span></div></div>';
+}
+</script>
 
-  // Processes
-  const procs = sys.top_processes || [];
-  const maxCpu = Math.max(1, ...procs.map(p => p.cpu_pct || 0));
-  $("procList").innerHTML = `<table><tr><th>Process</th><th class="num">CPU</th><th class="num">MEM</th><th class="num">Time</th></tr>${
-    procs.slice(0, 10).map(p => `<tr><td><span class="procbar"><i style="width:${(p.cpu_pct || 0) / maxCpu * 100}%"></i></span>${esc(p.name)}</td>
-      <td class="num">${pct(p.cpu_pct)}</td><td class="num">${pct(p.mem_pct)}</td>
-      <td class="num">${esc(p.elapsed || "")}</td></tr>`).join("")}</table>`;
+<script>
+"use strict";
+/* ---------- decisions / events ---------- */
+let decisionsCache = [], lastSeenTs = 0, evtFilter = "", newSinceOpen = new Set();
+function toast(msg) {
+  const t = document.createElement("div");
+  t.className = "toast"; t.textContent = msg;
+  $("toasts").appendChild(t);
+  setTimeout(() => t.remove(), 7000);
+}
+function renderDecisions() {
+  const list = decisionsCache.filter(e => !evtFilter || e.type.includes(evtFilter) ||
+    (evtFilter === "earning" && e.type.includes("earning")));
+  $("decList").innerHTML = list.slice().reverse().map(e => `
+    <div class="evt ${newSinceOpen.has(e.ts) ? "new" : ""}"><span class="t">${esc(fmtClock(e.ts))}</span>
+    <span class="ty">${esc(e.type)}</span>
+    <span class="d">${esc(e.detail ? JSON.stringify(e.detail) : "")}</span></div>`).join("")
+    || '<div class="evt"><span class="d">no events match</span></div>';
+}
+async function tickDecisions() {
+  try {
+    const r = await fetch("/api/decisions?limit=40", { cache: "no-store" });
+    if (!r.ok) return;
+    const d = await r.json();
+    const fresh = (d.decisions || []).filter(e => e.ts > lastSeenTs && lastSeenTs > 0);
+    decisionsCache = d.decisions || [];
+    if (decisionsCache.length) lastSeenTs = Math.max(lastSeenTs, ...decisionsCache.map(e => e.ts));
+    fresh.forEach(e => { newSinceOpen.add(e.ts); toast(`⚠ ${e.type} — ${fmtClock(e.ts)}`); });
+    if (fresh.length && currentView !== "events") {
+      const b = $("evtBadge"); b.style.display = ""; b.textContent = newSinceOpen.size;
+    }
+    renderDecisions();
+  } catch (e) { /* keep last */ }
+}
 
-  $("aboutRows").innerHTML =
-    row("Bridge", `v${esc((ov.bridge || {}).version || "?")} · up ${esc(fmtDur((ov.bridge || {}).uptime_seconds))}`) +
-    row("Data age", ov.generated_at ? fmtAgo(ov.generated_at) : "—") +
-    row("Endpoints", "/api/overview · /api/system · /api/darkbloom · /api/lmstudio · /api/decisions · /mcp");
+/* ---------- endpoint probes + page stats ---------- */
+const PROBES = ["/api/health", "/api/system", "/api/darkbloom", "/api/lmstudio", "/api/decisions?limit=1"];
+async function tickProbes() {
+  const out = [];
+  for (const p of PROBES) {
+    const t0 = performance.now();
+    try { const r = await fetch(p, { cache: "no-store" }); await r.text();
+      out.push([p.split("?")[0], `${Math.round(performance.now() - t0)} ms`]);
+    } catch (e) { out.push([p.split("?")[0], "unreachable"]); }
+  }
+  $("probeRows").innerHTML = out.map(([k, v]) => row(k, esc(v))).join("");
+  $("pageRows").innerHTML =
+    row("Open for", esc(fmtDur((Date.now() - pageStart) / 1000))) +
+    row("Polls", fmtInt(pollCount)) +
+    row("Failed polls", fmtInt(failCount)) +
+    row("Avg latency", pollCount ? `${Math.round(latSum / Math.max(1, pollCount - failCount))} ms` : "—") +
+    row("Poll interval", `${intervalMs / 1000}s`) +
+    row("History samples", fmtInt(hist.cpu.length));
+}
 
-  // history
-  const push = (arr, v) => { arr.push(v); if (arr.length > MAXH) arr.shift(); };
-  push(hist.cpu, cpu.used_pct); push(hist.mem, mem.used_pct); push(hist.gpu, gpuPct);
-  push(hist.nin, net.rate_in_bps); push(hist.nout, net.rate_out_bps);
+/* ---------- commands ---------- */
+const COMMANDS = [
+  ["Darkbloom status", "darkbloom status"],
+  ["Darkbloom doctor", "darkbloom doctor"],
+  ["Darkbloom re-login", "darkbloom login"],
+  ["Darkbloom restart", "darkbloom restart"],
+  ["Send diagnostics to Darkbloom support", "darkbloom report"],
+  ["Follow the provider log", "tail -f ~/.darkbloom/provider.log"],
+  ["Restart the dashboard bridge", "launchctl kickstart -k gui/$(id -u)/com.duckets.dashboard-bridge"],
+  ["Bridge health", "curl -s http://127.0.0.1:8901/api/health"],
+  ["Bridge decisions log", "curl -s 'http://127.0.0.1:8901/api/decisions?limit=10'"],
+];
+function renderCommands() {
+  $("cmdList").innerHTML = COMMANDS.map(([label, cmd], i) => `
+    <div style="margin-top:10px"><div style="color:var(--dim);font-size:12.5px">${esc(label)}</div>
+    <div class="cmd"><code>${esc(cmd)}</code><button data-cmd="${i}">Copy</button></div></div>`).join("");
+  $("cmdList").querySelectorAll("button[data-cmd]").forEach(b =>
+    b.addEventListener("click", () => {
+      const cmd = COMMANDS[Number(b.dataset.cmd)][1];
+      if (navigator.clipboard) navigator.clipboard.writeText(cmd).then(() => toast("Copied: " + cmd));
+    }));
+}
+
+/* ---------- export ---------- */
+function download(name, text, type) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([text], { type }));
+  a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+function jobsCsv() {
+  const lines = ["created_at,model,prompt_tokens,completion_tokens,amount_usd"];
+  lastHist.forEach(j => lines.push([j.created_at, `"${(j.model || "").replace(/"/g, '""')}"`,
+    j.prompt_tokens ?? "", j.completion_tokens ?? "",
+    j.amount_micro_usd != null ? (j.amount_micro_usd / 1e6).toFixed(6) : j.amount_usd ?? ""].join(",")));
+  download("darkbloom-jobs.csv", lines.join("\n"), "text/csv");
+}
+
+/* ---------- views / tabs ---------- */
+let currentView = "all";
+function setView(v) {
+  currentView = v;
+  document.querySelectorAll("#tabbar button").forEach(b =>
+    b.classList.toggle("on", b.dataset.view === v));
+  document.querySelectorAll("#grid .card").forEach(c => {
+    const views = (c.dataset.views || "").split(/\s+/);
+    c.style.display = (v === "all" || views.includes(v)) ? "" : "none";
+  });
+  if (v === "events") { newSinceOpen.clear(); $("evtBadge").style.display = "none"; renderDecisions(); }
   drawCharts();
 }
 
-function renderDecisions(list) {
-  $("decList").innerHTML = (list || []).slice().reverse().map(e => `
-    <div class="evt"><span class="t">${esc(fmtClock(e.ts))}</span>
-    <span class="ty">${esc(e.type)}</span>
-    <span class="d">${esc(e.detail ? JSON.stringify(e.detail) : "")}</span></div>`).join("")
-    || '<div class="evt"><span class="d">no events yet</span></div>';
-}
-
+/* ---------- polling ---------- */
 async function tick() {
   if (paused) return;
   const t0 = performance.now();
+  pollCount++;
   try {
     const r = await fetch("/api/overview", { cache: "no-store" });
     if (!r.ok) throw new Error("http " + r.status);
     const ov = await r.json();
     render(ov);
     lastOkAt = Date.now();
+    latSum += performance.now() - t0;
     $("connChip").className = "chip ok"; $("connText").textContent = "live";
     $("banner").style.display = "none";
+    document.querySelectorAll("#grid .card").forEach(c => c.classList.remove("stale"));
     $("latChip").textContent = `${Math.round(performance.now() - t0)} ms`;
   } catch (e) {
+    failCount++;
     $("connChip").className = "chip bad"; $("connText").textContent = "offline";
-    const b = $("banner");
-    b.style.display = "block";
-    b.textContent = "Can't reach the bridge API — showing the last data this page received. It'll pick back up on its own.";
+    $("banner").style.display = "flex";
+    document.querySelectorAll("#grid .card").forEach(c => c.classList.add("stale"));
   }
   $("updChip").textContent = lastOkAt ? `updated ${fmtAgo(lastOkAt / 1000)}` : "updated —";
 }
-async function tickDecisions() {
-  try {
-    const r = await fetch("/api/decisions?limit=30", { cache: "no-store" });
-    if (r.ok) { const d = await r.json(); renderDecisions(d.decisions); }
-  } catch (e) { /* keep last */ }
-}
+let mainTimer = null;
+function restartTimer() { clearInterval(mainTimer); mainTimer = setInterval(tick, intervalMs); }
+
+/* ---------- wiring ---------- */
 $("pauseBtn").addEventListener("click", () => {
   paused = !paused;
   $("pauseBtn").textContent = paused ? "Resume" : "Pause";
   if (!paused) tick();
 });
-$("intervalSel").addEventListener("change", e => { intervalMs = Number(e.target.value); restart(); });
-let mainTimer = null;
-function restart() { clearInterval(mainTimer); mainTimer = setInterval(tick, intervalMs); }
-tick(); tickDecisions(); restart();
-setInterval(tickDecisions, 20000);
-setInterval(() => { if (lastOkAt) $("updChip").textContent = `updated ${fmtAgo(lastOkAt / 1000)}`; }, 1000);
+$("refreshBtn").addEventListener("click", () => { tick(); tickDecisions(); });
+$("retryBtn").addEventListener("click", () => tick());
+$("intRange").addEventListener("input", e => {
+  intervalMs = Number(e.target.value) * 1000;
+  $("intVal").textContent = `${e.target.value}s`;
+  restartTimer();
+});
+$("procFilter").addEventListener("input", () => { if (lastOverview) renderProcesses(lastOverview.system.top_processes || []); });
+$("jobModelFilter").addEventListener("change", renderJobs);
+$("csvBtn").addEventListener("click", jobsCsv);
+$("csvBtn2").addEventListener("click", jobsCsv);
+$("snapBtn").addEventListener("click", () =>
+  download("dashboard-snapshot.json", JSON.stringify({ overview: lastOverview, decisions: decisionsCache }, null, 2), "application/json"));
+document.querySelectorAll("#tabbar button").forEach(b =>
+  b.addEventListener("click", () => setView(b.dataset.view)));
+document.querySelectorAll(".evtF").forEach(b => b.addEventListener("click", () => {
+  document.querySelectorAll(".evtF").forEach(x => x.classList.remove("on"));
+  b.classList.add("on"); evtFilter = b.dataset.f; renderDecisions();
+}));
+document.querySelectorAll(".winBtn").forEach(b => b.addEventListener("click", () => {
+  document.querySelectorAll(".winBtn").forEach(x => x.classList.remove("on"));
+  b.classList.add("on"); winSec = Number(b.dataset.win); drawCharts();
+}));
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) { clearInterval(mainTimer); }
+  else if (!paused) { tick(); restartTimer(); }
+});
+document.addEventListener("keydown", e => {
+  if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
+  const views = ["all", "ov", "sys", "db", "earn", "events", "console"];
+  if (e.key >= "1" && e.key <= "7") setView(views[Number(e.key) - 1]);
+  else if (e.key === "r" || e.key === "R") tick();
+  else if (e.key === "p" || e.key === "P") $("pauseBtn").click();
+});
 window.addEventListener("resize", drawCharts);
+
+/* ---------- go ---------- */
+initGauges();
+renderCommands();
+const hv = location.hash.replace("#", "");
+if (["ov", "sys", "db", "earn", "events", "console"].includes(hv)) setView(hv);
+tick(); tickDecisions(); tickProbes();
+restartTimer();
+setInterval(tickDecisions, 20000);
+setInterval(tickProbes, 30000);
+setInterval(() => { if (lastOkAt) $("updChip").textContent = `updated ${fmtAgo(lastOkAt / 1000)}`; }, 1000);
 </script>
 </body>
 </html>
