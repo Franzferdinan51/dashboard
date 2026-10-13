@@ -442,6 +442,11 @@
     <div id="actHistory"></div>
   </section>
 
+  <section class="card s12" data-views="grow" id="growEnvCard" style="display:none">
+    <h2>Tent environment <span class="right" id="growEnvAge"></span></h2>
+    <div id="growEnvBody"></div>
+  </section>
+
   <section class="card s12" data-views="grow" id="growDownCard" style="display:none">
     <h2>Grow — CannaAI <span class="right">grow service</span></h2>
     <div style="font-size:13.5px;color:var(--dim)">CannaAI unreachable — the grow service isn't answering right now. This tab fills in on its own once it responds.</div>
@@ -450,16 +455,22 @@
   <section class="card s4" data-views="grow" id="growStatusCard">
     <h2>CannaAI <span class="right" id="growChip"></span></h2>
     <div class="rows" id="growProvRows"><div class="row"><span class="k">Waiting for CannaAI data from the bridge…</span></div></div>
-  </section>
-
-  <section class="card s4" data-views="grow" id="growSensorsCard">
-    <h2>Sensors <span class="right">latest readings</span></h2>
-    <div class="rows" id="growSensorRows"></div>
+    <div id="growCompRows"></div>
   </section>
 
   <section class="card s4" data-views="grow" id="growAlertsCard">
     <h2>Alerts <span class="right">active</span></h2>
     <div id="growAlerts"></div>
+  </section>
+
+  <section class="card s4" data-views="grow" id="growAnalyzeCard">
+    <h2>Plant photo <span class="right">vision analysis</span></h2>
+    <div style="font-size:13px;color:var(--dim)">Upload a plant photo — the vision model diagnoses it and the result lands in the analysis history below.</div>
+    <div style="margin-top:10px"><input type="file" id="growFile" accept="image/*"></div>
+    <img id="growPreview" alt="selected plant photo" style="display:none;max-width:100%;border-radius:10px;margin-top:10px">
+    <div style="margin-top:10px"><input type="text" id="growStrain" placeholder="strain (optional)" style="width:100%;padding:6px 9px;box-sizing:border-box"></div>
+    <div style="margin-top:12px"><button class="btnPrimary" id="growAnalyzeBtn">Analyze photo</button></div>
+    <div class="aresult" id="growAnalyzeStatus"></div>
   </section>
 
   <section class="card s12" data-views="grow" id="growHistCard">
@@ -1439,11 +1450,45 @@ function applyGrowVisibility() {
   const down = !growData || !growData.reachable;
   const on = currentView === "grow";
   $("growDownCard").style.display = on && down ? "" : "none";
-  for (const id of ["growStatusCard", "growSensorsCard", "growAlertsCard", "growHistCard"])
+  // The AC Infinity environment is independent of CannaAI's health:
+  // it shows whenever the bridge has a reading, even if CannaAI is down.
+  const env = growData && growData.environment;
+  $("growEnvCard").style.display = on && env ? "" : "none";
+  for (const id of ["growStatusCard", "growAlertsCard", "growAnalyzeCard", "growHistCard"])
     $(id).style.display = on && !down ? "" : "none";
+}
+const growEnvVal = (v, unit) => v == null ? "—" : `${trimNum(v)}${unit}`;
+function renderGrowEnv(env) {
+  const age = $("growEnvAge");
+  const stale = env.fetched_at != null && (Date.now() / 1000 - env.fetched_at) > 1800;
+  age.textContent = `AC Infinity · updated ${env.fetched_at != null ? fmtAgo(env.fetched_at) : "—"}`;
+  age.style.color = stale ? "var(--amber)" : "";
+  age.style.fontWeight = stale ? "700" : "";
+  const devs = Array.isArray(env.devices) ? env.devices : [];
+  $("growEnvBody").innerHTML = devs.length ? devs.map(d => {
+    const ins = d.inside || {};
+    const stat = (label, v, unit) =>
+      `<div><div class="alabel" style="margin:0 0 2px">${label}</div>` +
+      `<div style="font-size:21px;font-weight:700">${growEnvVal(v, unit)}</div></div>`;
+    const out = d.outside
+      ? row("Outside", `${growEnvVal(d.outside.temp_f, "°F")} · ${growEnvVal(d.outside.rh, "%")} RH · ${growEnvVal(d.outside.vpd_kpa, " kPa")} VPD`)
+      : "";
+    const ports = (Array.isArray(d.ports) ? d.ports : []).map(p => row(p.name || "port",
+      `${p.mode ? esc(p.mode) + " · " : ""}${p.level == null ? "—" : "level " + esc(p.level)}`)).join("");
+    return `<div style="margin-bottom:16px">` +
+      `<div style="font-weight:700;font-size:15px">${esc(d.name || "Device")}` +
+      (d.id ? ` <span style="color:var(--faint);font-weight:400;font-size:12px">${esc(d.id)}</span>` : "") + `</div>` +
+      `<div style="display:flex;gap:26px;flex-wrap:wrap;margin:8px 0 4px">` +
+      stat("Inside temp", ins.temp_f, "°F") + stat("Inside humidity", ins.rh, "%") + stat("Inside VPD", ins.vpd_kpa, " kPa") +
+      `</div>` +
+      (out || ports ? `<div class="rows">${out}${ports}</div>` : "") + `</div>`;
+  }).join("") : `<div style="color:var(--faint);font-size:13px">No AC Infinity devices in the latest reading.</div>`;
 }
 function renderGrow(c) {
   growData = c;
+  // Environment renders even when CannaAI itself is unreachable — it
+  // comes from the AC Infinity collector, not from CannaAI.
+  if (c && c.environment) renderGrowEnv(c.environment);
   applyGrowVisibility();
   if (!c || !c.reachable) return;
   const st = String(c.status || "");
@@ -1454,14 +1499,27 @@ function renderGrow(c) {
   $("growProvRows").innerHTML = provs.length
     ? provs.map(p => row(p.name || "provider", esc(p.status || "—"))).join("")
     : row("AI providers up", esc(c.providers_up ?? "—"));
-  const sensors = c.sensors || [];
-  $("growSensorRows").innerHTML = sensors.length
-    ? sensors.map(s => {
-        const v = typeof s.value === "number" ? trimNum(s.value) : s.value;
-        return row(s.label || "", `${esc(v ?? "—")}${s.unit ? " " + esc(s.unit) : ""}`);
-      }).join("")
-    : `<div style="color:var(--faint);font-size:13px">No sensor readings yet — CannaAI has no sensors configured.</div>`;
-  const alerts = c.alerts || [];
+  // Health components (bridge 1.13+): one row per component so a
+  // DEGRADED chip explains itself — ok green, unreachable red,
+  // unconfigured/degraded amber.
+  const comps = Array.isArray(c.components) ? c.components : [];
+  $("growCompRows").innerHTML = comps.length
+    ? `<div class="alabel">Components</div><div class="rows">` + comps.map(cp => {
+        const s = String(cp.status || "").toLowerCase();
+        const color = /ok|up|healthy|available|ready/.test(s) ? "var(--green)"
+          : /unreach|down|error|fail|offline/.test(s) ? "var(--red)" : "var(--amber)";
+        return row(cp.name || "component",
+          `<span style="color:${color};font-weight:600">${esc(cp.status || "—")}</span>` +
+          (cp.detail ? ` <span style="color:var(--faint)">${esc(cp.detail)}</span>` : ""));
+      }).join("") + `</div>`
+    : "";
+  // Alerts: CannaAI's own plus the AC Infinity environment alerts,
+  // each tagged with its source.
+  const alerts = [
+    ...(Array.isArray(c.alerts) ? c.alerts : []).map(a => ({ ...a, src: "CannaAI" })),
+    ...(c.environment && Array.isArray(c.environment.alerts) ? c.environment.alerts : [])
+      .map(a => ({ ...a, src: "AC Infinity" })),
+  ];
   $("growAlerts").innerHTML = alerts.length
     ? alerts.map(a => {
         const lv = String(a.level || "").toLowerCase();
@@ -1469,10 +1527,11 @@ function renderGrow(c) {
           ? "var(--red)" : lv.includes("warn") ? "var(--amber)" : "var(--cyan)";
         const t = relTs(a.at);
         return `<div class="hrow"><span class="hdot" style="background:${color}"></span>` +
-          `<div class="am"><div>${esc(a.text || "")}</div></div>` +
+          `<div class="am"><div>${esc(a.text || "")} <span style="color:var(--faint);font-size:11px">· ${esc(a.src)}</span></div></div>` +
           (t ? `<span class="t">${esc(fmtAgo(t))}</span>` : "") + `</div>`;
       }).join("")
-    : `<div style="color:var(--faint);font-size:13px">No active alerts.</div>`;
+    : `<div style="color:var(--faint);font-size:13px">No active alerts — CannaAI and AC Infinity both quiet.</div>`;
+  syncGrowAnalyze(c.analyze);
   // Analysis history: history[0] IS the latest entry, so journal_latest
   // is only a fallback for payloads without a history array — never
   // render both (that would duplicate the newest analysis).
@@ -1496,6 +1555,96 @@ function renderGrow(c) {
       }).join("")
     : `<div style="color:var(--faint);font-size:13px">No analyses yet.</div>`;
 }
+
+/* ---------- grow: photo analysis upload ---------- */
+/* The picked photo is downscaled in the browser (max 1600px, JPEG
+ * 0.85) before it ever leaves the page — the raw camera file would be
+ * far too big for the bridge. POST /api/cannaai/analyze answers 202
+ * (queued), 409 (one already running) or 400; the result appears in
+ * the history list on a later poll, flagged by analyze.pending. */
+let growImageB64 = null, growPosting = false;
+function syncGrowAnalyze(an) {
+  const btn = $("growAnalyzeBtn"), stEl = $("growAnalyzeStatus");
+  if (!btn) return;
+  const pending = !!(an && an.pending);
+  btn.disabled = pending || growPosting;
+  btn.textContent = pending ? "Analyzing…" : growPosting ? "Sending…" : "Analyze photo";
+  if (pending) {
+    const started = relTs(an.started_at);
+    stEl.textContent = "Analyzing…" + (started ? ` (started ${fmtAgo(started)})` : "") +
+      " — the vision model takes a few minutes; the result lands in the history below.";
+    stEl.className = "aresult";
+  } else if (an && an.last_error) {
+    stEl.textContent = an.last_error;
+    stEl.className = "aresult bad";
+  } else if (stEl.textContent.startsWith("Analyzing")) {
+    stEl.textContent = "";
+    stEl.className = "aresult";
+  }
+}
+$("growFile").addEventListener("change", () => {
+  const f = $("growFile").files && $("growFile").files[0];
+  growImageB64 = null;
+  if (!f) { $("growPreview").style.display = "none"; return; }
+  const rd = new FileReader();
+  rd.onload = () => {
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(1, 1600 / Math.max(img.width, img.height));
+      const cv = document.createElement("canvas");
+      cv.width = Math.round(img.width * scale);
+      cv.height = Math.round(img.height * scale);
+      cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
+      const url = cv.toDataURL("image/jpeg", 0.85);
+      growImageB64 = url.split(",")[1] || null;
+      const pv = $("growPreview");
+      pv.src = url;
+      pv.style.display = "";
+      const stEl = $("growAnalyzeStatus");
+      stEl.textContent = "";
+      stEl.className = "aresult";
+    };
+    img.src = rd.result;
+  };
+  rd.readAsDataURL(f);
+});
+$("growAnalyzeBtn").addEventListener("click", async () => {
+  if (growPosting) return;
+  const stEl = $("growAnalyzeStatus");
+  if (!growImageB64) {
+    stEl.textContent = "Pick a photo first.";
+    stEl.className = "aresult bad";
+    return;
+  }
+  growPosting = true;
+  syncGrowAnalyze(growData && growData.analyze);
+  try {
+    const body = { image_base64: growImageB64 };
+    const strain = $("growStrain").value.trim();
+    if (strain) body.strain = strain;
+    const r = await fetch("/api/cannaai/analyze", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const j = await r.json().catch(() => null);
+    if (r.status === 202) {
+      stEl.textContent = "Photo sent — analyzing… the result will appear in the history below.";
+      stEl.className = "aresult ok";
+    } else if (r.status === 409) {
+      stEl.textContent = (j && j.error) || "An analysis is already running.";
+      stEl.className = "aresult bad";
+    } else {
+      stEl.textContent = (j && (j.error || j.message)) || `Bridge returned HTTP ${r.status}`;
+      stEl.className = "aresult bad";
+    }
+  } catch (e) {
+    stEl.textContent = "Can't reach the bridge.";
+    stEl.className = "aresult bad";
+  }
+  growPosting = false;
+  syncGrowAnalyze(growData && growData.analyze);
+  tickSide(); // pick up analyze.pending + any fresh history right away
+});
 
 let sysoneCard = null;
 function renderSystemOne(so) {
