@@ -87,6 +87,9 @@ fun SystemScreen(state: DashboardUiState, columns: Int = 1, onRefresh: () -> Uni
                         item { StorageNetworkCard(sys, state) }
                         item { ProcessesCard(sys, state) }
                     }
+                    if (state.systemone != null) {
+                        item { SystemOneCard(state) }
+                    }
                     item { Spacer(Modifier.height(10.dp)) }
                 }
             }
@@ -242,6 +245,37 @@ private fun MemoryRow(label: String, bytes: Long, color: androidx.compose.ui.gra
         Spacer(Modifier.width(8.dp))
         Text(label, style = MaterialTheme.typography.bodyMedium, color = Muse.TextDim, modifier = Modifier.weight(1f))
         Text(fmtBytes(bytes), style = MaterialTheme.typography.bodyMedium, color = Muse.Mist)
+    }
+}
+
+/** SystemOne's health, proxied by the bridge (GET /api/systemone):
+ * the decision sidecar behind DuckBot/grok-local — metrics endpoint,
+ * HTTP shim, and the lifetime decision count. */
+@Composable
+private fun SystemOneCard(state: DashboardUiState) {
+    val so = state.systemone ?: return
+    MuseCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(20.dp)) {
+            CardHeader("SystemOne", subtitle = "decision engine · DuckBot / grok-local") {
+                if (!state.connected) StatusChip("OFFLINE", Muse.Bad)
+                else StatusChip(
+                    if (so.reachable) "UP" else "DOWN",
+                    if (so.reachable) Muse.Good else Muse.Bad,
+                )
+            }
+            Spacer(Modifier.height(10.dp))
+            if (!so.reachable) {
+                Text("SystemOne isn't answering on the Mac — the sidecar may be stopped.",
+                    style = MaterialTheme.typography.bodyMedium, color = Muse.TextDim)
+            } else {
+                KeyValueRow("Metrics endpoint", if (so.metricsOk) "ok" else "down",
+                    valueColor = if (so.metricsOk) Muse.Mist else Muse.Bad)
+                KeyValueRow("HTTP shim", if (so.shimUp) "up" else "down",
+                    valueColor = if (so.shimUp) Muse.Mist else Muse.Bad)
+                KeyValueRow("Decisions (lifetime)",
+                    so.decisionsTotal?.let { com.duckets.dashboard.ui.fmtCount(it) } ?: "—")
+            }
+        }
     }
 }
 

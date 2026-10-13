@@ -21,6 +21,12 @@ data class DashboardUiState(
     val overview: Overview? = null,
     val mining: com.duckets.dashboard.data.MiningData? = null,
     val windows: com.duckets.dashboard.data.WindowsData? = null,
+    /** Side panels on the same slow cadence as mining/windows: the
+     * decisions event log, CannaAI, SystemOne (bridge 1.11+). A failed
+     * or absent endpoint leaves the last value (or null) untouched. */
+    val decisions: List<com.duckets.dashboard.data.DecisionEvent> = emptyList(),
+    val cannaai: com.duckets.dashboard.data.CannaAiData? = null,
+    val systemone: com.duckets.dashboard.data.SystemOneData? = null,
     val connected: Boolean = false,
     val everConnected: Boolean = false,
     val lastError: String? = null,
@@ -184,9 +190,20 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
                 lastSideFetchMs = nowMs
                 val mining = runCatching { repo.fetchMining(url) }.getOrNull()
                 val windows = runCatching { repo.fetchWindows(url) }.getOrNull()
-                if ((mining != null || windows != null) && gen == urlGeneration) {
+                val decisions = runCatching { repo.fetchDecisions(url) }.getOrNull()
+                val cannaai = runCatching { repo.fetchCannaAi(url) }.getOrNull()
+                val systemone = runCatching { repo.fetchSystemOne(url) }.getOrNull()
+                if ((mining != null || windows != null || decisions != null ||
+                        cannaai != null || systemone != null) && gen == urlGeneration
+                ) {
                     _state.update {
-                        it.copy(mining = mining ?: it.mining, windows = windows ?: it.windows)
+                        it.copy(
+                            mining = mining ?: it.mining,
+                            windows = windows ?: it.windows,
+                            decisions = decisions ?: it.decisions,
+                            cannaai = cannaai ?: it.cannaai,
+                            systemone = systemone ?: it.systemone,
+                        )
                     }
                 }
             }
@@ -364,6 +381,7 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
         _state.update {
             it.copy(
                 bridgeUrl = clean, overview = null, mining = null, windows = null,
+                decisions = emptyList(), cannaai = null, systemone = null,
                 actions = ActionsUiState(),
                 connected = false, everConnected = false,
                 lastError = null, lastUpdatedMillis = 0L, dataTimestampMillis = 0L,

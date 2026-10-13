@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Home-screen widget: combined $/day, Darkbloom state, Batman-3
+     hashrate. All text is (re)written by WidgetUpdater on each refresh;
+     these are just first-paint placeholders in the app palette. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_background"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="COMBINED EARNINGS"
+        android:textColor="#FF9FB4D8"
+        android:textSize="11sp"
+        android:letterSpacing="0.08" />
+
+    <TextView
+        android:id="@+id/widget_combined"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="— /day"
+        android:textColor="#FFF4F8FF"
+        android:textSize="26sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/widget_darkbloom"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:text="Darkbloom · —"
+        android:textColor="#FF9FB4D8"
+        android:textSize="13sp"
+        android:maxLines="1"
+        android:ellipsize="end" />
+
+    <TextView
+        android:id="@+id/widget_miner"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Batman-3 · —"
+        android:textColor="#FF9FB4D8"
+        android:textSize="13sp"
+        android:maxLines="1"
+        android:ellipsize="end" />
+
+    <TextView
+        android:id="@+id/widget_updated"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="Waiting for the bridge…"
+        android:textColor="#FF6E86AD"
+        android:textSize="11sp" />
+</LinearLayout>

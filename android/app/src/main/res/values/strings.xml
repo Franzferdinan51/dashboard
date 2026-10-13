@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Mac Studio</string>
+    <string name="widget_description">Combined Darkbloom + mining earnings, Darkbloom state, and Batman-3 hashrate</string>
 </resources>
