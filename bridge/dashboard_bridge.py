@@ -23,6 +23,9 @@ Endpoints:
     GET  /api/systemone -> SystemOne sidecar state (metrics + shim)
     GET  /api/actions   -> action surface state (LM Studio loaded/available
                            models, Darkbloom + miner + bridge state)
+    POST /api/cannaai/analyze -> forward a plant photo (base64 JSON) to
+                           CannaAI's analyzer in the background; progress
+                           shows as `analyze` inside GET /api/cannaai
     POST /api/action    -> run an action {"action": ..., "target": ...}
                            (lm_load / lm_unload / darkbloom_restart /
                            miner_start / miner_stop / bridge_restart);
@@ -61,7 +64,7 @@ DARKBLOOM_STATE = os.path.join(HOME, ".darkbloom", "daemon-state.json")
 DARKBLOOM_TOKEN = os.path.join(HOME, ".darkbloom", "auth_token")
 LMSTUDIO_KEY = os.path.join(HOME, ".config", "lmstudio", "api_key")
 LMSTUDIO_BASE = "http://127.0.0.1:1234"
-BRIDGE_VERSION = "1.12.0"
+BRIDGE_VERSION = "1.13.0"
 _STARTED_AT = time.time()
 
 # --------------------------------------------------------------------------
@@ -1523,24 +1526,162 @@ def _cannaai_providers(rows):
     return out
 
 
+def _cannaai_components(health):
+    # The health-check's component detail (db / lmstudio / openclaw /
+    # hermes) is what the rolled-up `status` word summarizes — pass it
+    # through so the apps can show WHY a status is "degraded". Names
+    # and statuses verbatim; `detail` is the remaining scalar fields
+    # (e.g. lmstudio's model count, openclaw's transport) or null.
+    comps = health.get("components") if isinstance(health, dict) else None
+    if not isinstance(comps, dict):
+        return []
+    out = []
+    for name, c in comps.items():
+        if isinstance(c, dict):
+            extras = []
+            for k, v in c.items():
+                if k == "status" or v is None or isinstance(v, bool):
+                    continue
+                if isinstance(v, (str, int, float)):
+                    extras.append(f"{k}: {v}")
+            out.append({"name": name, "status": c.get("status"),
+                        "detail": "; ".join(extras) or None})
+        else:
+            out.append({"name": name, "status": c, "detail": None})
+    return out
+
+
+ACINFINITY_JSON = os.path.join(HOME, "dashboard-bridge", "acinfinity.json")
+
+
+def _acinfinity_environment():
+    # Tent environment from the AC Infinity collector
+    # (~/bin/acinfinity-collect.sh scrapes the AC Infinity app on the
+    # Moto G every 10 min while the phone is awake + unlocked and drops
+    # the readings here). Verbatim passthrough; null when the file is
+    # missing or doesn't parse — the Grow tab then shows CannaAI only.
+    try:
+        with open(ACINFINITY_JSON) as f:
+            data = json.load(f)
+    except Exception:
+        return None
+    if not isinstance(data, dict) \
+            or not isinstance(data.get("devices"), list):
+        return None
+    alerts = data.get("alerts")
+    return {"fetched_at": data.get("fetched_at"),
+            "devices": data.get("devices"),
+            "alerts": alerts if isinstance(alerts, list) else []}
+
+
 def cannaai_stats():
     def fetch():
+        env = _acinfinity_environment()
         try:
             health = http_get_json(CANNAI_BASE + "/api/health-check",
                                    timeout=5)
         except Exception:
-            return {"reachable": False}
+            return {"reachable": False, "components": [],
+                    "environment": env}
         hist_rows = _cannaai_history_rows()
         prov_rows = _cannaai_provider_rows()
         return {"reachable": True,
                 "status": _cannaai_status_summary(health),
+                "components": _cannaai_components(health),
                 "sensors": _cannaai_sensors(),
                 "alerts": _cannaai_alerts(),
                 "journal_latest": _cannaai_journal_latest(hist_rows),
                 "history": _cannaai_history(hist_rows),
                 "providers": _cannaai_providers(prov_rows),
-                "providers_up": _cannaai_providers_up(prov_rows)}
-    return cached("cannaai", 30, fetch, swr=True)
+                "providers_up": _cannaai_providers_up(prov_rows),
+                "environment": env}
+    result = cached("cannaai", 30, fetch, swr=True)
+    if isinstance(result, dict):
+        # `analyze` is live in-memory state — a pending flag inside a
+        # 30s cache would hide both the start and the finish of an
+        # analysis from the apps. Overlay the real state at serve time.
+        result = dict(result)
+        result["analyze"] = _analyze_state_view()
+    return result
+
+
+# --------------------------------------------------------------------------
+# CannaAI photo analysis (POST /api/cannaai/analyze)
+#
+# The one CannaAI write the bridge performs: an app uploads a plant
+# photo as base64 JSON; the bridge forwards it to CannaAI's analyzer
+# (POST :3000/api/analyze, JSON {plantImage, strain, leafSymptoms,
+# additionalNotes} — the analyzer normalizes raw base64 or a data URL)
+# on a background thread because a vision analysis can take minutes.
+# Exactly one analysis runs at a time; the apps poll the `analyze`
+# block in GET /api/cannaai and see the result land in `history`.
+# --------------------------------------------------------------------------
+
+ANALYZE_MAX_IMAGE_BYTES = 14 * 1024 * 1024   # decoded image cap
+ANALYZE_BODY_CAP = 24 * 1024 * 1024          # declared JSON cap, this route
+
+_analyze_lock = threading.Lock()
+_analyze_state = {"pending": False, "started_at": None, "last_error": None}
+
+
+def _analyze_state_view():
+    with _analyze_lock:
+        return dict(_analyze_state)
+
+
+def _cannaai_analyze_worker(image_b64, strain, notes):
+    ok = False
+    message = "unknown error"
+    try:
+        fwd = {"plantImage": image_b64, "leafSymptoms": "",
+               "temperatureUnit": "F"}
+        if strain:
+            fwd["strain"] = strain
+        if notes:
+            fwd["additionalNotes"] = notes
+        req = urllib.request.Request(
+            CANNAI_BASE + "/api/analyze",
+            data=json.dumps(fwd).encode("utf-8"),
+            headers={"Content-Type": "application/json"})
+        status = None
+        data = {}
+        try:
+            # The analyzer allows itself 600s for a vision call; give
+            # the round trip a little slack beyond that.
+            with urllib.request.urlopen(req, timeout=660) as resp:
+                status = resp.status
+                data = json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            status = e.code
+            try:
+                data = json.loads(e.read().decode("utf-8"))
+            except Exception:
+                data = {}
+        if status == 200 and isinstance(data, dict) and data.get("success"):
+            ok = True
+            message = "analysis complete"
+            analysis = data.get("analysis")
+            if isinstance(analysis, dict) and analysis.get("diagnosis"):
+                message = f"analysis complete: {analysis['diagnosis']}"
+        else:
+            err = data.get("error") if isinstance(data, dict) else None
+            if isinstance(err, dict):
+                message = err.get("userMessage") or err.get("message") \
+                    or f"CannaAI HTTP {status}"
+            elif isinstance(err, str) and err:
+                message = err
+            else:
+                message = f"CannaAI HTTP {status}"
+        # Either way the attempt is over: drop the cached cannaai
+        # snapshot so a new history row (on success) shows up promptly.
+        _invalidate("cannaai")
+    except Exception as e:
+        message = f"{type(e).__name__}: {e}"
+    message = str(message)[:300]
+    with _analyze_lock:
+        _analyze_state["pending"] = False
+        _analyze_state["last_error"] = None if ok else message[:200]
+    _log_action("cannaai_analyze", strain, ok, message)
 
 
 def systemone_stats():
@@ -2402,7 +2543,12 @@ class Handler(BaseHTTPRequestHandler):
                 declared = int(self.headers.get("Content-Length") or 0)
             except (TypeError, ValueError):
                 declared = -1
-            if declared < 0 or declared > 1_000_000:
+            # The analyze route carries a base64 photo (up to ~14MB
+            # decoded, under CannaAI's own 25MB ceiling) — its cap is
+            # the only larger one; every other route stays at 1MB.
+            cap = ANALYZE_BODY_CAP if path == "/api/cannaai/analyze" \
+                else 1_000_000
+            if declared < 0 or declared > cap:
                 self.close_connection = True  # body unread/unreadable
                 self._send({"ok": False,
                             "error": "invalid or oversized request body"}, 400)
@@ -2446,6 +2592,75 @@ class Handler(BaseHTTPRequestHandler):
                             ok, message)
                 if after is not None:
                     after()
+                return
+            if path == "/api/cannaai/analyze":
+                length = int(self.headers.get("Content-Length") or 0)
+                raw = self.rfile.read(length) if length > 0 else b""
+                try:
+                    payload = json.loads(raw.decode("utf-8")) if raw \
+                        else {}
+                except Exception:
+                    payload = None
+                if not isinstance(payload, dict):
+                    self._send({"ok": False,
+                                "error": "body must be a JSON object"}, 400)
+                    return
+                image_b64 = payload.get("image_base64")
+                if not isinstance(image_b64, str) or not image_b64.strip():
+                    self._send({"ok": False,
+                                "error": "missing 'image_base64'"}, 400)
+                    return
+                image_b64 = image_b64.strip()
+                if image_b64.startswith("data:"):
+                    # Tolerate a full data URL; forward the raw base64.
+                    comma = image_b64.find(",")
+                    if comma < 0:
+                        self._send({"ok": False,
+                                    "error": "malformed data URL"}, 400)
+                        return
+                    image_b64 = image_b64[comma + 1:]
+                # App encoders often wrap base64 in newlines.
+                image_b64 = re.sub(r"\s+", "", image_b64)
+                try:
+                    decoded = base64.b64decode(image_b64, validate=True)
+                except Exception:
+                    self._send({"ok": False,
+                                "error": "image_base64 is not valid base64"},
+                               400)
+                    return
+                if len(decoded) > ANALYZE_MAX_IMAGE_BYTES:
+                    self._send({"ok": False,
+                                "error": "image too large (max 14MB decoded)"},
+                               400)
+                    return
+                strain = payload.get("strain")
+                notes = payload.get("notes")
+                if strain is not None and (not isinstance(strain, str)
+                                           or len(strain) > 100):
+                    self._send({"ok": False,
+                                "error": "strain must be a string ≤100 chars"},
+                               400)
+                    return
+                if notes is not None and (not isinstance(notes, str)
+                                          or len(notes) > 2000):
+                    self._send({"ok": False,
+                                "error": "notes must be a string ≤2000 chars"},
+                               400)
+                    return
+                with _analyze_lock:
+                    if _analyze_state["pending"]:
+                        self._send({"ok": False,
+                                    "error": "an analysis is already "
+                                             "in progress"}, 409)
+                        return
+                    _analyze_state["pending"] = True
+                    _analyze_state["started_at"] = time.time()
+                    _analyze_state["last_error"] = None
+                threading.Thread(
+                    target=_cannaai_analyze_worker,
+                    args=(image_b64, strain or None, notes or None),
+                    daemon=True, name="cannaai-analyze").start()
+                self._send({"ok": True}, 202)
                 return
             if path != "/mcp":
                 # The request body (if any) is never read on this path —
