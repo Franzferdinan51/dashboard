@@ -39,6 +39,13 @@ final class DashboardViewModel: ObservableObject {
     @Published var actionInFlight: String?
     /// Last outcome per section key.
     @Published var actionResults: [String: ActionOutcome] = [:]
+    /// A plant-photo upload is on its way to the bridge (the POST
+    /// itself, not the minutes-long analysis that follows it).
+    @Published var analyzeSubmitting: Bool = false
+    /// The bridge's verdict on the last photo upload (accepted /
+    /// already-running / rejected), shown in the Grow tab until the
+    /// next upload replaces it.
+    @Published var analyzeOutcome: ActionOutcome?
     /// Persisted in UserDefaults key "bridge_url".
     @Published var bridgeURLString: String
     /// Poll cadence in seconds, persisted in UserDefaults key
@@ -223,6 +230,37 @@ final class DashboardViewModel: ObservableObject {
         }
     }
 
+    // MARK: - Plant photo analysis
+
+    /// Hand one plant photo (base64 JPEG) to the bridge for CannaAI
+    /// analysis. The POST only uploads — the vision model takes
+    /// minutes, and the result arrives via the normal cannaai poll
+    /// as a new history entry, with analyze.pending true meanwhile.
+    func submitPlantPhoto(imageBase64: String, strain: String?) async {
+        guard !analyzeSubmitting else { return }
+        analyzeSubmitting = true
+        analyzeOutcome = nil
+        let gen = urlGeneration
+        do {
+            let ack = try await client.postAnalyze(
+                imageBase64: imageBase64, strain: strain, notes: nil)
+            if gen == urlGeneration {
+                analyzeOutcome = ActionOutcome(ok: ack.ok, message: ack.message)
+            }
+        } catch {
+            if gen == urlGeneration {
+                analyzeOutcome = ActionOutcome(ok: false, message: Self.friendlyError(error))
+            }
+        }
+        if gen == urlGeneration {
+            analyzeSubmitting = false
+            // Pull the fresh cannaai state right away: a 202 flips
+            // analyze.pending on the bridge, and the card should
+            // show "Analyzing…" without waiting out the side cadence.
+            await refresh()
+        }
+    }
+
     // MARK: - Settings
 
     func setBridgeURL(_ s: String) {
@@ -248,6 +286,8 @@ final class DashboardViewModel: ObservableObject {
         lastError = nil
         actionInFlight = nil
         actionResults = [:]
+        analyzeSubmitting = false
+        analyzeOutcome = nil
         stop()
         start()
         Task { await refresh() }

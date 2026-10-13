@@ -149,6 +149,59 @@ final class BridgeClient {
         throw BridgeError.http(status)
     }
 
+    // MARK: - Plant photo analysis
+
+    /// The bridge's reply to an analyze upload: 202 accepted, 409 one
+    /// already running, 400 rejected — each with the bridge's words.
+    struct AnalyzeAck {
+        let ok: Bool
+        let message: String
+    }
+
+    /// POST /api/cannaai/analyze {image_base64, strain?, notes?}.
+    /// Like postAction, the body is parsed on ANY status: the 4xx
+    /// replies carry a JSON {"error": ...} whose words belong on
+    /// screen. The analysis itself runs on the bridge/CannaAI side —
+    /// this call only hands the photo over, so the result lands in
+    /// the grow history minutes later, not in this response.
+    func postAnalyze(imageBase64: String, strain: String?, notes: String?) async throws -> AnalyzeAck {
+        guard let url = URL(string: baseURLString + "/api/cannaai/analyze") else {
+            throw BridgeError.badURL
+        }
+        var payload: [String: Any] = ["image_base64": imageBase64]
+        if let strain, !strain.isEmpty { payload["strain"] = strain }
+        if let notes, !notes.isEmpty { payload["notes"] = notes }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+
+        let (data, response) = try await actionSession.data(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+        var serverMessage: String?
+        if let object = try? JSONSerialization.jsonObject(with: data),
+           let dict = object as? [String: Any] {
+            serverMessage = (dict["error"] as? String) ?? (dict["message"] as? String)
+        }
+        switch status {
+        case 202:
+            return AnalyzeAck(ok: true, message: serverMessage
+                ?? "Photo accepted — the analysis lands in the history below in a few minutes.")
+        case 409:
+            return AnalyzeAck(ok: false, message: serverMessage
+                ?? "An analysis is already running — wait for it to finish.")
+        case 400:
+            return AnalyzeAck(ok: false, message: serverMessage
+                ?? "The bridge rejected that photo.")
+        case 200...299:
+            return AnalyzeAck(ok: true, message: serverMessage
+                ?? "Photo accepted — the analysis lands in the history below in a few minutes.")
+        default:
+            if status == -1 { throw BridgeError.unexpectedResponse }
+            throw BridgeError.http(status)
+        }
+    }
+
     // MARK: - Plumbing
 
     private func get<T: Decodable>(_ type: T.Type, path: String) async throws -> T {
