@@ -61,7 +61,7 @@ DARKBLOOM_STATE = os.path.join(HOME, ".darkbloom", "daemon-state.json")
 DARKBLOOM_TOKEN = os.path.join(HOME, ".darkbloom", "auth_token")
 LMSTUDIO_KEY = os.path.join(HOME, ".config", "lmstudio", "api_key")
 LMSTUDIO_BASE = "http://127.0.0.1:1234"
-BRIDGE_VERSION = "1.11.1"
+BRIDGE_VERSION = "1.11.2"
 _STARTED_AT = time.time()
 
 # --------------------------------------------------------------------------
@@ -1345,27 +1345,47 @@ def _cannaai_status_summary(health):
 
 
 def _cannaai_sensors():
-    try:
-        payload = http_get_json(CANNAI_BASE + "/api/sensors", timeout=5)
-    except Exception:
-        return []
-    rows = payload.get("data") if isinstance(payload, dict) else payload
-    if not isinstance(rows, list) or not rows:
-        return []
-    out = []
-    latest = rows[0] if isinstance(rows[0], dict) else {}
-    data = latest.get("data") if isinstance(latest.get("data"), dict) else {}
+    # Primary: /api/sensors/data/latest -> {success, data:{...}, timestamp}
+    # (the purpose-built latest-values endpoint). Fallback: /api/sensors,
+    # whose rows live under "readings" (NOT "data" — the original code
+    # read the wrong key and could only ever return []) and are reversed
+    # server-side, so the newest reading is rows[-1]. Reading rows carry
+    # no name/type join, so labels come from the data dict's field names.
     fields = [("temperature", "Temperature", "°F"),
               ("humidity", "Humidity", "%"),
               ("vpd", "VPD", "kPa"),
               ("co2", "CO2", "ppm"),
               ("light", "Light", "")]
-    for key, label, unit in fields:
-        if data.get(key) is not None:
-            out.append({"label": label, "value": data[key], "unit": unit})
+
+    def expand(data):
+        out = []
+        if isinstance(data, dict):
+            for key, label, unit in fields:
+                if data.get(key) is not None:
+                    out.append({"label": label, "value": data[key],
+                                "unit": unit})
+        return out
+
+    try:
+        payload = http_get_json(CANNAI_BASE + "/api/sensors/data/latest",
+                                timeout=5)
+        out = expand(payload.get("data") if isinstance(payload, dict)
+                     else None)
+        if out:
+            return out[:6]
+    except Exception:
+        pass
+    try:
+        payload = http_get_json(CANNAI_BASE + "/api/sensors", timeout=5)
+    except Exception:
+        return []
+    rows = payload.get("readings") if isinstance(payload, dict) else payload
+    if not isinstance(rows, list) or not rows:
+        return []
+    latest = rows[-1] if isinstance(rows[-1], dict) else {}
+    out = expand(latest.get("data"))
     if not out and latest.get("value") is not None:
-        out.append({"label": latest.get("type") or latest.get("name")
-                    or "Reading", "value": latest.get("value"),
+        out.append({"label": "Reading", "value": latest.get("value"),
                     "unit": latest.get("unit") or ""})
     return out[:6]
 
@@ -1395,22 +1415,24 @@ def _cannaai_alerts():
 
 
 def _cannaai_journal_latest():
+    # CannaAI has no /api/journal (the original code probed a nonexistent
+    # endpoint, so this was null forever). The grow journal is the
+    # PlantAnalysis history: GET /api/history -> {success, history:[...]}
+    # ordered newest first; an entry's headline is its diagnosis.
     try:
-        payload = http_get_json(CANNAI_BASE + "/api/journal", timeout=5)
+        payload = http_get_json(CANNAI_BASE + "/api/history", timeout=5)
     except Exception:
         return None
-    rows = payload.get("data") if isinstance(payload, dict) else payload
-    if isinstance(rows, dict):
-        rows = [rows]
+    rows = payload.get("history") if isinstance(payload, dict) else payload
     if not isinstance(rows, list) or not rows or not isinstance(rows[0], dict):
         return None
     e = rows[0]
-    text = e.get("text") or e.get("entry") or e.get("content") \
-        or e.get("title") or e.get("notes")
+    text = e.get("diagnosis") or e.get("notes") or e.get("text") \
+        or e.get("title")
     if not text:
         return None
     return {"text": str(text)[:200],
-            "at": e.get("createdAt") or e.get("timestamp") or e.get("date")}
+            "at": e.get("createdAt") or e.get("date") or e.get("timestamp")}
 
 
 def _cannaai_providers_up():
