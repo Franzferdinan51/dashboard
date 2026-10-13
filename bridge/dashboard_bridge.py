@@ -70,7 +70,7 @@ DARKBLOOM_STATE = os.path.join(HOME, ".darkbloom", "daemon-state.json")
 DARKBLOOM_TOKEN = os.path.join(HOME, ".darkbloom", "auth_token")
 LMSTUDIO_KEY = os.path.join(HOME, ".config", "lmstudio", "api_key")
 LMSTUDIO_BASE = "http://127.0.0.1:1234"
-BRIDGE_VERSION = "1.14.0"
+BRIDGE_VERSION = "1.14.1"
 _STARTED_AT = time.time()
 
 # --------------------------------------------------------------------------
@@ -1640,14 +1640,19 @@ CANNAI_BACKEND_PLIST = os.path.join(
     HOME, "Library", "LaunchAgents", "com.duckets.cannaai-backend.plist")
 CANNAI_BACKEND_LABEL = "com.duckets.cannaai-backend"
 
-# Both MiniCPM-V 4.7 builds SIGABRT llama-server on load (verified
-# twice, 2026-10-12) — flagged in the picker so they aren't chosen
+# Both MiniCPM-V 4.7 GGUF builds SIGABRT llama-server on load
+# (verified twice, 2026-10-12), and the MLX build fails to load on
+# LM Studio 0.4.26's bundled MLX runtime (tokenizer API too old,
+# verified 2026-10-13) — flagged in the picker so they aren't chosen
 # again by accident. Everything else gets the benefit of the doubt.
 _VISION_KNOWN_ISSUES = {
     "minicpm-v-4.7-35b-a3b@q4_k_m":
         "crashes LM Studio on load (verified 2026-10-12)",
     "minicpm-v-4.7-35b-a3b@q8_0":
         "crashes LM Studio on load (verified 2026-10-12)",
+    "mlx-community/minicpm-v-4.7-35b-a3b":
+        "LM Studio can't load this MLX build yet — its runtime is "
+        "too old for the model's tokenizer (verified 2026-10-13)",
 }
 
 
