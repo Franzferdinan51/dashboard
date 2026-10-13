@@ -466,6 +466,12 @@
   <section class="card s4" data-views="grow" id="growAnalyzeCard">
     <h2>Plant photo <span class="right">vision analysis</span></h2>
     <div style="font-size:13px;color:var(--dim)">Upload a plant photo — the vision model diagnoses it and the result lands in the analysis history below.</div>
+    <div id="growModelRow" style="display:none;margin-top:10px">
+      <div class="alabel" style="margin:0 0 4px">Vision model</div>
+      <select id="growModelSel" style="width:100%;box-sizing:border-box"></select>
+      <div id="growModelWarn" style="display:none;font-size:12.5px;color:var(--amber);margin-top:6px;line-height:1.5"></div>
+      <span class="aresult" id="growModelStatus"></span>
+    </div>
     <div style="margin-top:10px"><input type="file" id="growFile" accept="image/*"></div>
     <img id="growPreview" alt="selected plant photo" style="display:none;max-width:100%;border-radius:10px;margin-top:10px">
     <div style="margin-top:10px"><input type="text" id="growStrain" placeholder="strain (optional)" style="width:100%;padding:6px 9px;box-sizing:border-box"></div>
@@ -1531,6 +1537,7 @@ function renderGrow(c) {
           (t ? `<span class="t">${esc(fmtAgo(t))}</span>` : "") + `</div>`;
       }).join("")
     : `<div style="color:var(--faint);font-size:13px">No active alerts — CannaAI and AC Infinity both quiet.</div>`;
+  syncGrowModels(c);
   syncGrowAnalyze(c.analyze);
   // Analysis history: history[0] IS the latest entry, so journal_latest
   // is only a fallback for payloads without a history array — never
@@ -1567,6 +1574,8 @@ function syncGrowAnalyze(an) {
   const btn = $("growAnalyzeBtn"), stEl = $("growAnalyzeStatus");
   if (!btn) return;
   const pending = !!(an && an.pending);
+  const msel = $("growModelSel");
+  if (msel) msel.disabled = pending || growModelPosting;
   btn.disabled = pending || growPosting;
   btn.textContent = pending ? "Analyzing…" : growPosting ? "Sending…" : "Analyze photo";
   if (pending) {
@@ -1582,6 +1591,86 @@ function syncGrowAnalyze(an) {
     stEl.className = "aresult";
   }
 }
+/* ---------- grow: vision model picker ---------- */
+/* Bridge 1.14+ lists CannaAI's vision-capable LM Studio models
+ * smallest-first (vision_models) plus the effective selection
+ * (vision_model, null = CannaAI auto-picks). Changing the picker
+ * POSTs the choice; the bridge re-pins it in CannaAI's settings and
+ * restarts CannaAI. The options rebuild only when the list/selection
+ * signature changes — a poll must never clobber an open dropdown or
+ * a pick the user just made (same pattern as jobModelFilter). Older
+ * bridges send no vision_models: the whole row stays hidden. */
+let growVisionModels = [], growModelPosting = false;
+const growModelShort = id => String(id || "").split("/").pop();
+function syncGrowModels(c) {
+  const wrap = $("growModelRow"), sel = $("growModelSel");
+  if (!wrap || !sel) return;
+  const models = Array.isArray(c.vision_models) ? c.vision_models : [];
+  growVisionModels = models;
+  if (!models.length) { wrap.style.display = "none"; return; }
+  wrap.style.display = "";
+  const sig = JSON.stringify(models.map(m =>
+    [m.id, m.size_gb ?? null, !!m.loaded, m.known_issue || null])) + "|" + (c.vision_model || "");
+  if (sel.dataset.sig !== sig) {
+    const prev = sel.value;
+    const target = models.some(m => m.id === prev) ? prev
+      : models.some(m => m.id === c.vision_model) ? c.vision_model : "";
+    sel.innerHTML =
+      (c.vision_model ? "" :
+        `<option value="" disabled ${target ? "" : "selected"}>Auto (CannaAI picks)</option>`) +
+      models.map(m => {
+        let label = growModelShort(m.id);
+        if (m.size_gb != null) label += ` · ${trimNum(m.size_gb)} GB`;
+        if (m.loaded) label += " · loaded";
+        if (m.known_issue) label += " ⚠";
+        return `<option value="${esc(m.id)}"${m.id === target ? " selected" : ""}>${esc(label)}</option>`;
+      }).join("");
+    sel.dataset.sig = sig;
+  }
+  sel.disabled = growModelPosting || !!(c.analyze && c.analyze.pending);
+  syncGrowModelWarn();
+}
+function syncGrowModelWarn() {
+  const warn = $("growModelWarn"), sel = $("growModelSel");
+  if (!warn || !sel) return;
+  const m = growVisionModels.find(x => x.id === sel.value);
+  if (m && m.known_issue) {
+    warn.textContent = "⚠ " + m.known_issue;
+    warn.style.display = "";
+  } else warn.style.display = "none";
+}
+$("growModelSel").addEventListener("change", async () => {
+  const sel = $("growModelSel"), stEl = $("growModelStatus");
+  const model = sel.value;
+  syncGrowModelWarn();
+  if (!model || growModelPosting) return;
+  growModelPosting = true;
+  sel.disabled = true;
+  try {
+    const r = await fetch("/api/cannaai/vision-model", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model }),
+    });
+    const j = await r.json().catch(() => null);
+    if (r.ok) {
+      stEl.textContent = `Vision model set to ${growModelShort((j && j.model) || model)} — CannaAI restarted`;
+      stEl.className = "aresult ok";
+    } else if (r.status === 409) {
+      stEl.textContent = "Wait for the current analysis to finish";
+      stEl.className = "aresult bad";
+    } else {
+      stEl.textContent = (j && (j.error || j.message)) || `Bridge returned HTTP ${r.status}`;
+      stEl.className = "aresult bad";
+    }
+  } catch (e) {
+    stEl.textContent = "Can't reach the bridge.";
+    stEl.className = "aresult bad";
+  }
+  growModelPosting = false;
+  sel.disabled = !!(growData && growData.analyze && growData.analyze.pending);
+  tickSide(); // pick up the new vision_model + restarted CannaAI promptly
+});
+
 $("growFile").addEventListener("change", () => {
   const f = $("growFile").files && $("growFile").files[0];
   growImageB64 = null;
