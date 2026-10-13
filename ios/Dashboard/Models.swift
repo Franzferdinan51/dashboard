@@ -60,20 +60,47 @@ private extension Optional where Wrapped == String {
 
 struct OverviewResponse {
     var generatedAt: Double = 0
+    var bridgeVersion: String? = nil
+    var bridgeUptimeSeconds: Int64? = nil
     var system: SystemStats = SystemStats()
     var darkbloom: DarkbloomStats = DarkbloomStats()
     var lmstudio: LmStudioStats = LmStudioStats()
 }
 
 extension OverviewResponse: Decodable {
-    enum CodingKeys: String, CodingKey { case generatedAt, system, darkbloom, lmstudio }
+    enum CodingKeys: String, CodingKey { case generatedAt, bridge, system, darkbloom, lmstudio }
+    enum BridgeKeys: String, CodingKey { case version, uptimeSeconds }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         generatedAt = c.tolerant(Double.self, forKey: .generatedAt) ?? 0
+        if let bridge = try? c.nestedContainer(keyedBy: BridgeKeys.self, forKey: .bridge) {
+            bridgeVersion = bridge.tolerant(String.self, forKey: .version).nilIfBlank
+            bridgeUptimeSeconds = bridge.tolerant(Int64.self, forKey: .uptimeSeconds)
+        }
         system = c.tolerant(SystemStats.self, forKey: .system) ?? SystemStats()
         darkbloom = c.tolerant(DarkbloomStats.self, forKey: .darkbloom) ?? DarkbloomStats()
         lmstudio = c.tolerant(LmStudioStats.self, forKey: .lmstudio) ?? LmStudioStats()
+    }
+}
+
+/// GET /api/health — the Settings "Test" probe's answer.
+struct BridgeHealth {
+    var ok: Bool = false
+    var version: String? = nil
+    var machine: String? = nil
+    var uptimeSeconds: Int64? = nil
+}
+
+extension BridgeHealth: Decodable {
+    enum CodingKeys: String, CodingKey { case ok, version, machine, uptimeSeconds }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        ok = c.tolerant(Bool.self, forKey: .ok) ?? false
+        version = c.tolerant(String.self, forKey: .version).nilIfBlank
+        machine = c.tolerant(String.self, forKey: .machine).nilIfBlank
+        uptimeSeconds = c.tolerant(Int64.self, forKey: .uptimeSeconds)
     }
 }
 
@@ -273,6 +300,9 @@ struct DarkbloomStats {
     var trustStatus: String? = nil
     var trustReason: String? = nil
     var trustPath: String? = nil
+    /// Epoch seconds when the Darkbloom auth session expires
+    /// (trust.session_expires_at on the wire; a number, not a string).
+    var trustSessionExpiresAt: Double? = nil
     var earning: Bool = false
     var verificationPending: Bool = true
     var requestsServed: Int64? = nil
@@ -300,7 +330,7 @@ extension DarkbloomStats: Decodable {
              trust, earning, verificationPending, stats, capacity, warmModels,
              advertisedModels, slots, residentModels, autopilot, appAttest, earnings
     }
-    enum TrustKeys: String, CodingKey { case level, status, reason, path }
+    enum TrustKeys: String, CodingKey { case level, status, reason, path, sessionExpiresAt }
     enum StatsKeys: String, CodingKey { case requestsServed, tokensGenerated }
     enum CapacityKeys: String, CodingKey { case totalMemoryGb, gpuActiveGb, gpuCacheGb, freeForLoadGb }
     enum AutopilotKeys: String, CodingKey { case phase, enabled, observeOnly }
@@ -321,6 +351,7 @@ extension DarkbloomStats: Decodable {
             trustStatus = trust.tolerant(String.self, forKey: .status).nilIfBlank
             trustReason = trust.tolerant(String.self, forKey: .reason).nilIfBlank
             trustPath = trust.tolerant(String.self, forKey: .path).nilIfBlank
+            trustSessionExpiresAt = trust.tolerant(Double.self, forKey: .sessionExpiresAt)
         }
         earning = c.tolerant(Bool.self, forKey: .earning) ?? false
         verificationPending = c.tolerant(Bool.self, forKey: .verificationPending) ?? true
@@ -498,17 +529,29 @@ struct EarningsEstimates {
     var jobsPerDayUsd: Double? = nil
     var onlineFraction: Double? = nil
     var whileServingPerDayUsd: Double? = nil
+    /// The realized per-day rate over each trailing window — the
+    /// components the blended headline is averaged from.
+    var compLastHourUsd: Double? = nil
+    var compLast6hUsd: Double? = nil
+    var compLast24hUsd: Double? = nil
+    var compLast7dUsd: Double? = nil
     var series: [EarningsPoint] = []
 }
 
 extension EarningsEstimates: Decodable {
     enum CodingKeys: String, CodingKey {
         case perDayUsd, perWeekUsd, perMonthUsd, method, trackedSince,
-             basis, confidence, split, serving, series
+             basis, confidence, split, serving, components, series
     }
     enum BasisKeys: String, CodingKey { case label }
     enum SplitKeys: String, CodingKey { case basePerDayUsd, jobsPerDayUsd }
     enum ServingKeys: String, CodingKey { case onlineFraction, perDayWhileServingUsd }
+    // Digit trap: "last_6h" converts to "last6H", "last_24h" to
+    // "last24H", "last_7d" to "last7D" — raw values are the CONVERTED
+    // spellings, like the miner average keys.
+    enum ComponentsKeys: String, CodingKey {
+        case lastHour, last6h = "last6H", last24h = "last24H", last7d = "last7D"
+    }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -528,6 +571,12 @@ extension EarningsEstimates: Decodable {
         if let serving = try? c.nestedContainer(keyedBy: ServingKeys.self, forKey: .serving) {
             onlineFraction = serving.tolerant(Double.self, forKey: .onlineFraction)
             whileServingPerDayUsd = serving.tolerant(Double.self, forKey: .perDayWhileServingUsd)
+        }
+        if let comps = try? c.nestedContainer(keyedBy: ComponentsKeys.self, forKey: .components) {
+            compLastHourUsd = comps.tolerant(Double.self, forKey: .lastHour)
+            compLast6hUsd = comps.tolerant(Double.self, forKey: .last6h)
+            compLast24hUsd = comps.tolerant(Double.self, forKey: .last24h)
+            compLast7dUsd = comps.tolerant(Double.self, forKey: .last7d)
         }
         series = c.lossyArray(EarningsPoint.self, forKey: .series)
     }
@@ -632,10 +681,11 @@ struct MiningData {
     var batmanLive: BatmanLive? = nil
     var batmanVerified: BatmanVerified? = nil
     var batmanHistory: BatmanHistory? = nil
+    var profit: MiningProfit? = nil
 }
 
 extension MiningData: Decodable {
-    enum CodingKeys: String, CodingKey { case fleet, totals, batmanLive, batmanVerified, batmanHistory }
+    enum CodingKeys: String, CodingKey { case fleet, totals, batmanLive, batmanVerified, batmanHistory, profit }
     enum FleetKeys: String, CodingKey { case asOf, source, coins }
     enum TotalsKeys: String, CodingKey { case perDayUsd, perWeekUsd, perMonthUsd, perYearUsd }
 
@@ -655,6 +705,31 @@ extension MiningData: Decodable {
         batmanLive = c.tolerant(BatmanLive.self, forKey: .batmanLive)
         batmanVerified = c.tolerant(BatmanVerified.self, forKey: .batmanVerified)
         batmanHistory = c.tolerant(BatmanHistory.self, forKey: .batmanHistory)
+        profit = c.tolerant(MiningProfit.self, forKey: .profit)
+    }
+}
+
+/// Power-cost truth for the verified mining figure: the bridge prices
+/// the rig's live draw at a configured electricity rate and nets it
+/// against the verified revenue (bridge 1.11+, /api/mining "profit").
+struct MiningProfit {
+    var powerW: Double? = nil
+    var rateUsdKwh: Double? = nil
+    var kwhPerDay: Double? = nil
+    var powerCostDay: Double? = nil
+    var netDay: Double? = nil
+}
+
+extension MiningProfit: Decodable {
+    enum CodingKeys: String, CodingKey { case powerW, rateUsdKwh, kwhPerDay, powerCostDay, netDay }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        powerW = c.tolerant(Double.self, forKey: .powerW)
+        rateUsdKwh = c.tolerant(Double.self, forKey: .rateUsdKwh)
+        kwhPerDay = c.tolerant(Double.self, forKey: .kwhPerDay)
+        powerCostDay = c.tolerant(Double.self, forKey: .powerCostDay)
+        netDay = c.tolerant(Double.self, forKey: .netDay)
     }
 }
 
@@ -984,10 +1059,13 @@ struct ActionsResponse {
     var darkbloom: ActionsDarkbloom = ActionsDarkbloom()
     var mining: ActionsMining = ActionsMining()
     var bridge: ActionsBridge = ActionsBridge()
+    /// Recent action attempts, newest first (bridge 1.11+; absent on
+    /// older bridges, decodes as empty).
+    var history: [ActionHistoryEntry] = []
 }
 
 extension ActionsResponse: Decodable {
-    enum CodingKeys: String, CodingKey { case lmstudio, darkbloom, mining, bridge }
+    enum CodingKeys: String, CodingKey { case lmstudio, darkbloom, mining, bridge, history }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -995,6 +1073,30 @@ extension ActionsResponse: Decodable {
         darkbloom = c.tolerant(ActionsDarkbloom.self, forKey: .darkbloom) ?? ActionsDarkbloom()
         mining = c.tolerant(ActionsMining.self, forKey: .mining) ?? ActionsMining()
         bridge = c.tolerant(ActionsBridge.self, forKey: .bridge) ?? ActionsBridge()
+        history = c.lossyArray(ActionHistoryEntry.self, forKey: .history)
+    }
+}
+
+/// One entry of the bridge's actions audit trail (actions.jsonl,
+/// surfaced by GET /api/actions as "history").
+struct ActionHistoryEntry {
+    var ts: Double = 0
+    var action: String = ""
+    var target: String? = nil
+    var ok: Bool = false
+    var message: String? = nil
+}
+
+extension ActionHistoryEntry: Decodable {
+    enum CodingKeys: String, CodingKey { case ts, action, target, ok, message }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        ts = c.tolerant(Double.self, forKey: .ts) ?? 0
+        action = c.tolerant(String.self, forKey: .action).nilIfBlank ?? ""
+        target = c.tolerant(String.self, forKey: .target).nilIfBlank
+        ok = c.tolerant(Bool.self, forKey: .ok) ?? false
+        message = c.tolerant(String.self, forKey: .message).nilIfBlank
     }
 }
 
@@ -1100,5 +1202,226 @@ struct ActionResult: Decodable {
     init(ok: Bool, message: String) {
         self.ok = ok
         self.message = message
+    }
+}
+
+// MARK: - Decisions (GET /api/decisions)
+//
+// The bridge's state-change event log: a watcher samples the same
+// stats the endpoints serve and records transitions (Darkbloom
+// start/stop, earning start/stop, trust changes, LM Studio up/down,
+// loaded-model changes, serving-model changes). Newest first.
+
+struct DecisionsResponse {
+    var generatedAt: Double = 0
+    var decisions: [DecisionEvent] = []
+}
+
+extension DecisionsResponse: Decodable {
+    enum CodingKeys: String, CodingKey { case generatedAt, decisions }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        generatedAt = c.tolerant(Double.self, forKey: .generatedAt) ?? 0
+        decisions = c.lossyArray(DecisionEvent.self, forKey: .decisions)
+    }
+}
+
+struct DecisionEvent {
+    /// Epoch seconds.
+    var ts: Double = 0
+    /// The event kind, verbatim from the bridge: bridge_started,
+    /// darkbloom_started/stopped, darkbloom_earning_started/stopped,
+    /// darkbloom_trust_changed, darkbloom_model_changed,
+    /// lmstudio_up/down, lmstudio_models_changed.
+    var type: String = ""
+    // The detail object is kind-specific; the fields any kind uses are
+    // flattened here (absent reads as nil, like everywhere else).
+    var detailFrom: String? = nil
+    var detailTo: String? = nil
+    var detailModel: String? = nil
+    var detailVersion: String? = nil
+    var detailLoaded: [String] = []
+}
+
+extension DecisionEvent: Decodable {
+    enum CodingKeys: String, CodingKey { case ts, type, detail }
+    enum DetailKeys: String, CodingKey { case from, to, model, version, loaded }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        ts = c.tolerant(Double.self, forKey: .ts) ?? 0
+        type = c.tolerant(String.self, forKey: .type).nilIfBlank ?? ""
+        if let detail = try? c.nestedContainer(keyedBy: DetailKeys.self, forKey: .detail) {
+            detailFrom = detail.tolerant(String.self, forKey: .from).nilIfBlank
+            detailTo = detail.tolerant(String.self, forKey: .to).nilIfBlank
+            detailModel = detail.tolerant(String.self, forKey: .model).nilIfBlank
+            detailVersion = detail.tolerant(String.self, forKey: .version).nilIfBlank
+            detailLoaded = detail.lossyArray(String.self, forKey: .loaded)
+        }
+    }
+}
+
+// MARK: - CannaAI grow (GET /api/cannaai, bridge 1.11+)
+//
+// The bridge proxies Duckets' CannaAI grow app (tent sensors, alerts,
+// journal). Shown on Overview only when reachable — an unreachable
+// CannaAI means "grow app not running", not an error state.
+
+struct CannaaiResponse {
+    var generatedAt: Double = 0
+    var cannaai: CannaaiData? = nil
+}
+
+extension CannaaiResponse: Decodable {
+    enum CodingKeys: String, CodingKey { case generatedAt, cannaai }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        generatedAt = c.tolerant(Double.self, forKey: .generatedAt) ?? 0
+        cannaai = c.tolerant(CannaaiData.self, forKey: .cannaai)
+    }
+}
+
+struct CannaaiData {
+    var reachable: Bool = false
+    var status: String? = nil
+    var sensors: [GrowSensor] = []
+    var alerts: [GrowAlert] = []
+    var journalLatest: GrowJournalEntry? = nil
+    /// providers_up on the wire — a bool ("are providers up") or a
+    /// count, depending on the bridge build; both decode attempts run.
+    var providersUp: Bool? = nil
+    var providersUpCount: Int? = nil
+}
+
+extension CannaaiData: Decodable {
+    enum CodingKeys: String, CodingKey {
+        case reachable, status, sensors, alerts, journalLatest, providersUp
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        reachable = c.tolerant(Bool.self, forKey: .reachable) ?? false
+        status = c.tolerant(String.self, forKey: .status).nilIfBlank
+        sensors = c.lossyArray(GrowSensor.self, forKey: .sensors)
+        alerts = c.lossyArray(GrowAlert.self, forKey: .alerts)
+        journalLatest = c.tolerant(GrowJournalEntry.self, forKey: .journalLatest)
+        providersUp = c.tolerant(Bool.self, forKey: .providersUp)
+        providersUpCount = c.tolerant(Int.self, forKey: .providersUp)
+    }
+}
+
+struct GrowSensor {
+    var label: String = ""
+    /// Display-ready value: a numeric wire value is pre-formatted
+    /// (integers without a fraction, others to 1 dp); strings pass through.
+    var valueText: String = "—"
+    var unit: String? = nil
+}
+
+extension GrowSensor: Decodable {
+    enum CodingKeys: String, CodingKey { case label, value, unit }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        label = c.tolerant(String.self, forKey: .label).nilIfBlank ?? ""
+        if let d = c.tolerant(Double.self, forKey: .value), d.isFinite {
+            valueText = d == d.rounded() && abs(d) < 9.0e15
+                ? String(Int64(d))
+                : String(format: "%.1f", d)
+        } else {
+            valueText = c.tolerant(String.self, forKey: .value).nilIfBlank ?? "—"
+        }
+        unit = c.tolerant(String.self, forKey: .unit).nilIfBlank
+    }
+}
+
+/// A timestamp that may arrive as epoch seconds (number) or an
+/// ISO-8601 string; both decode attempts run and display picks a form.
+struct FlexibleTime {
+    var epochSec: Double? = nil
+    var raw: String? = nil
+
+    var isEmpty: Bool { epochSec == nil && raw == nil }
+}
+
+private extension KeyedDecodingContainer {
+    func flexibleTime(forKey key: Key) -> FlexibleTime {
+        FlexibleTime(
+            epochSec: tolerant(Double.self, forKey: key),
+            raw: tolerant(String.self, forKey: key).nilIfBlank
+        )
+    }
+}
+
+struct GrowAlert {
+    var text: String = ""
+    var level: String? = nil
+    var at: FlexibleTime = FlexibleTime()
+}
+
+extension GrowAlert: Decodable {
+    enum CodingKeys: String, CodingKey { case text, level, at }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        text = c.tolerant(String.self, forKey: .text).nilIfBlank ?? ""
+        level = c.tolerant(String.self, forKey: .level).nilIfBlank
+        at = c.flexibleTime(forKey: .at)
+    }
+}
+
+struct GrowJournalEntry {
+    var text: String = ""
+    var at: FlexibleTime = FlexibleTime()
+}
+
+extension GrowJournalEntry: Decodable {
+    enum CodingKeys: String, CodingKey { case text, at }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        text = c.tolerant(String.self, forKey: .text).nilIfBlank ?? ""
+        at = c.flexibleTime(forKey: .at)
+    }
+}
+
+// MARK: - SystemOne (GET /api/systemone, bridge 1.11+)
+//
+// Duckets' local decision engine, proxied by the bridge: is it up,
+// and how many decisions has it served.
+
+struct SystemoneResponse {
+    var generatedAt: Double = 0
+    var systemone: SystemOneData? = nil
+}
+
+extension SystemoneResponse: Decodable {
+    enum CodingKeys: String, CodingKey { case generatedAt, systemone }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        generatedAt = c.tolerant(Double.self, forKey: .generatedAt) ?? 0
+        systemone = c.tolerant(SystemOneData.self, forKey: .systemone)
+    }
+}
+
+struct SystemOneData {
+    var reachable: Bool = false
+    var metricsOk: Bool = false
+    var shimUp: Bool = false
+    var decisionsTotal: Int64? = nil
+}
+
+extension SystemOneData: Decodable {
+    enum CodingKeys: String, CodingKey { case reachable, metricsOk, shimUp, decisionsTotal }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        reachable = c.tolerant(Bool.self, forKey: .reachable) ?? false
+        metricsOk = c.tolerant(Bool.self, forKey: .metricsOk) ?? false
+        shimUp = c.tolerant(Bool.self, forKey: .shimUp) ?? false
+        decisionsTotal = c.tolerant(Int64.self, forKey: .decisionsTotal)
     }
 }

@@ -49,6 +49,14 @@ private struct MiniBar: View {
     }
 }
 
+/// Grouped count ("1,234") or the raw number.
+private func sysCount(_ v: Int64) -> String {
+    let f = NumberFormatter()
+    f.numberStyle = .decimal
+    f.usesGroupingSeparator = true
+    return f.string(from: NSNumber(value: v)) ?? "\(v)"
+}
+
 private struct LegendDot: View {
     let color: Color
     let text: String
@@ -105,11 +113,43 @@ struct SystemView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
+                if let so = vm.systemone {
+                    systemOneCard(so)
+                }
             }
             .padding(16)
         }
         .background(Theme.bg)
         .refreshable { await vm.refresh() }
+    }
+
+    // MARK: - SystemOne
+
+    /// Duckets' local decision engine (the d1 router behind DuckBot /
+    /// grok-local), proxied by the bridge. It launches on demand, so
+    /// "not running" is a normal, honest state — not an error.
+    private func systemOneCard(_ so: SystemOneData) -> some View {
+        DashCard(title: "SystemOne") {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("local decision engine")
+                        .font(.caption)
+                        .foregroundStyle(Theme.textDim)
+                    Spacer()
+                    if so.reachable {
+                        StatusChip(text: "UP", color: Theme.good)
+                    } else {
+                        StatusChip(text: "NOT RUNNING", color: Theme.textDim)
+                    }
+                }
+                KVRow("Engine", so.reachable ? "up" : "not running")
+                if so.reachable {
+                    KVRow("Metrics", so.metricsOk ? "ok" : "unavailable")
+                    KVRow("HTTP shim", so.shimUp ? "up" : "down")
+                    KVRow("Decisions served", so.decisionsTotal.map(sysCount) ?? "—")
+                }
+            }
+        }
     }
 
     // MARK: - Processor
