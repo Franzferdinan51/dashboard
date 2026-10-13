@@ -61,7 +61,7 @@ DARKBLOOM_STATE = os.path.join(HOME, ".darkbloom", "daemon-state.json")
 DARKBLOOM_TOKEN = os.path.join(HOME, ".darkbloom", "auth_token")
 LMSTUDIO_KEY = os.path.join(HOME, ".config", "lmstudio", "api_key")
 LMSTUDIO_BASE = "http://127.0.0.1:1234"
-BRIDGE_VERSION = "1.11.2"
+BRIDGE_VERSION = "1.11.3"
 _STARTED_AT = time.time()
 
 # --------------------------------------------------------------------------
@@ -1061,16 +1061,29 @@ def _notify_text(kind, detail):
 
 def _notify_alert(kind, detail=None):
     """Best-effort ntfy push for watcher transitions. Never raises: a
-    dead network or ntfy outage must not take the watcher down with it."""
+    dead network or ntfy outage must not take the watcher down with it.
+    Each send attempt logs one line to stderr (kind + HTTP status, or
+    the exception) so the alert path is verifiable in the bridge's
+    err log; host only, never the topic path."""
     try:
         if os.path.exists(_ALERTS_OFF_FILE):
             return
         body = _notify_text(kind, detail).encode("utf-8")[:500]
         req = urllib.request.Request(_NTFY_URL, data=body, method="POST",
                                      headers={"Title": "Dashboard"})
-        urllib.request.urlopen(req, timeout=5).read()
-    except Exception:
-        pass
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            status = resp.status
+            resp.read()
+        print(f"ntfy alert sent: kind={kind} "
+              f"host={urllib.parse.urlparse(_NTFY_URL).hostname} "
+              f"status={status}", file=sys.stderr, flush=True)
+    except Exception as e:
+        try:
+            print(f"ntfy alert FAILED: kind={kind} "
+                  f"error={type(e).__name__}: {e}",
+                  file=sys.stderr, flush=True)
+        except Exception:
+            pass
 
 
 def _watcher():
@@ -2307,6 +2320,8 @@ class Handler(BaseHTTPRequestHandler):
                     # str.isdigit() was not enough: it accepts characters
                     # like '²' that int() then rejects with a 500.
                     limit = 50
+                # Clamp: an unbounded limit would hand back the whole log.
+                limit = max(1, min(limit, 200))
                 self._send({"generated_at": time.time(),
                             "decisions": decisions_list(limit)})
             elif path == "/api/overview":
