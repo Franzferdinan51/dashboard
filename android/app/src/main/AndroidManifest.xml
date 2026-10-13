@@ -18,6 +18,20 @@
         android:theme="@style/Theme.MacStudioDashboard"
         android:usesCleartextTraffic="true">
 
+        <!-- Home-screen widget: no state of its own; updates arrive via
+             WorkManager (see widget/WidgetRefreshWorker.kt). -->
+        <receiver
+            android:name=".widget.DashboardWidgetProvider"
+            android:exported="false"
+            android:label="@string/app_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_dashboard_info" />
+        </receiver>
+
         <activity
             android:name=".MainActivity"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"

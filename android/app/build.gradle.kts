@@ -14,10 +14,10 @@ android {
         applicationId = "com.duckets.dashboard"
         minSdk = 26
         targetSdk = 36
-        versionCode = 16
+        versionCode = 17
         // App and bridge version independently (bridge: BRIDGE_VERSION in
         // bridge/dashboard_bridge.py). Bump each only when it changes.
-        versionName = "1.6.1"
+        versionName = "1.7.0"
 
         // Default bridge address. Override per-machine (never committed) by
         // putting dashboard.bridgeUrl=<url> in android/local.properties.
@@ -88,6 +88,9 @@ dependencies {
 
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+
+    // Home-screen widget refresh (15-min periodic floor + one-time kicks).
+    implementation("androidx.work:work-runtime-ktx:2.9.1")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-tooling-preview")

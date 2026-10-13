@@ -110,6 +110,19 @@ class DashboardRepository(
     suspend fun fetchActions(baseUrl: String): ActionsData =
         parseActions(getJson(baseUrl, "/api/actions"))
 
+    suspend fun fetchDecisions(baseUrl: String, limit: Int = 40): List<DecisionEvent> =
+        parseDecisions(getJson(baseUrl, "/api/decisions?limit=$limit"))
+
+    suspend fun fetchCannaAi(baseUrl: String): CannaAiData {
+        val root = getJson(baseUrl, "/api/cannaai")
+        return parseCannaAi(root.obj("cannaai") ?: root)
+    }
+
+    suspend fun fetchSystemOne(baseUrl: String): SystemOneData {
+        val root = getJson(baseUrl, "/api/systemone")
+        return parseSystemOne(root.obj("systemone") ?: root)
+    }
+
     suspend fun postAction(baseUrl: String, action: String, target: String? = null): ActionResult {
         val payload = JSONObject()
         payload.put("action", action)
@@ -190,6 +203,27 @@ private fun JSONObject.intOrNull(key: String): Int? =
 
 private fun JSONObject.bool(key: String): Boolean? =
     if (has(key) && !isNull(key)) optBoolean(key) else null
+
+/** Epoch seconds from a value that may be a number (seconds or millis)
+ * or an ISO-8601 string — Daemon-written timestamps don't promise one
+ * shape (the bridge passes darkbloom's session_expires_at through raw). */
+private fun JSONObject.epochFlexible(key: String): Double? {
+    if (!has(key) || isNull(key)) return null
+    return when (val v = opt(key)) {
+        is Number -> v.toDouble().takeIf { it.isFinite() && it > 0 }
+            ?.let { if (it > 1e12) it / 1000.0 else it }
+        is String -> try {
+            java.time.Instant.parse(v).epochSecond.toDouble()
+        } catch (e: Exception) {
+            try {
+                java.time.OffsetDateTime.parse(v).toEpochSecond().toDouble()
+            } catch (e2: Exception) {
+                null
+            }
+        }
+        else -> null
+    }
+}
 
 fun parseOverview(root: JSONObject): Overview {
     // A 200 with an empty or error-shaped body must land in the error path —
@@ -360,6 +394,7 @@ private fun parseDarkbloom(db: JSONObject): DarkbloomStats {
         trustStatus = trust.str("status"),
         trustReason = trust.str("reason"),
         trustPath = trust.str("path"),
+        trustSessionExpiresAtEpochSec = trust.epochFlexible("session_expires_at"),
         earning = db.bool("earning") ?: false,
         verificationPending = db.bool("verification_pending") ?: true,
         requestsServed = stats.lng("requests_served"),
@@ -424,6 +459,7 @@ private fun parseEarnings(e: JSONObject): Earnings {
         estimates = e.obj("estimates")?.let { s ->
             val split = s.obj("split")
             val serving = s.obj("serving")
+            val comps = s.obj("components")
             val series = buildList {
                 s.arr("series")?.let { a ->
                     for (i in 0 until a.length()) {
@@ -446,6 +482,10 @@ private fun parseEarnings(e: JSONObject): Earnings {
                 onlineFraction = serving?.dbl("online_fraction"),
                 whileServingPerDayUsd = serving?.dbl("per_day_while_serving_usd"),
                 series = series,
+                componentLastHourUsd = comps?.dbl("last_hour"),
+                componentLast6hUsd = comps?.dbl("last_6h"),
+                componentLast24hUsd = comps?.dbl("last_24h"),
+                componentLast7dUsd = comps?.dbl("last_7d"),
             )
         },
     )
@@ -512,6 +552,7 @@ private fun parseMining(m: JSONObject): MiningData {
         }
     }
     val totals = m.obj("totals")
+    val profit = m.obj("profit")
     val live = m.obj("batman_live")
     val ver = m.obj("batman_verified")
     val vnet = ver?.obj("network")
@@ -576,6 +617,15 @@ private fun parseMining(m: JSONObject): MiningData {
                 stale = it.bool("stale") ?: false,
             )
         },
+        profit = profit?.let {
+            MiningProfit(
+                powerW = it.dbl("power_w"),
+                rateUsdKwh = it.dbl("rate_usd_kwh"),
+                kwhPerDay = it.dbl("kwh_per_day"),
+                powerCostDay = it.dbl("power_cost_day"),
+                netDay = it.dbl("net_day"),
+            )
+        },
     )
 }
 
@@ -602,14 +652,117 @@ private fun parseActions(root: JSONObject): ActionsData {
             }
         }
     }
+    val history = buildList {
+        root.arr("history")?.let { a ->
+            for (i in 0 until a.length()) {
+                val h = a.optJSONObject(i) ?: continue
+                add(
+                    ActionHistoryEntry(
+                        tsEpochSec = h.dbl("ts") ?: 0.0,
+                        action = h.str("action") ?: "",
+                        target = h.str("target"),
+                        ok = h.bool("ok") ?: false,
+                        message = h.str("message"),
+                    )
+                )
+            }
+        }
+    }
     return ActionsData(
         lmLoaded = loaded,
         lmAvailable = available,
         darkbloomRunning = root.obj("darkbloom")?.bool("running") ?: false,
         minerRunning = root.obj("mining")?.bool("miner_running") ?: false,
         bridgeVersion = root.obj("bridge")?.str("version"),
+        history = history,
     )
 }
+
+private fun parseDecisions(root: JSONObject): List<DecisionEvent> = buildList {
+    root.arr("decisions")?.let { a ->
+        for (i in 0 until a.length()) {
+            val ev = a.optJSONObject(i) ?: continue
+            val type = ev.str("type") ?: continue
+            val detail = ev.obj("detail")
+            val detailText = when (type) {
+                "darkbloom_trust_changed" -> {
+                    val from = detail?.str("from")
+                    val to = detail?.str("to")
+                    if (from != null || to != null) "${from ?: "?"} → ${to ?: "?"}" else null
+                }
+                "lmstudio_models_changed" -> {
+                    val loaded = buildList {
+                        detail?.arr("loaded")?.let { la ->
+                            for (j in 0 until la.length()) (la.opt(j) as? String)?.let { add(it) }
+                        }
+                    }
+                    if (loaded.isEmpty()) "nothing loaded now"
+                    else "loaded: " + loaded.joinToString(", ") {
+                        it.substringAfterLast("/")
+                    }
+                }
+                "darkbloom_model_changed" -> detail?.str("model")?.substringAfterLast("/")
+                "bridge_started" -> detail?.str("version")?.let { "bridge v$it" }
+                else -> null
+            }
+            add(DecisionEvent(tsEpochSec = ev.dbl("ts") ?: 0.0, type = type, detailText = detailText))
+        }
+    }
+}
+
+private fun parseCannaAi(c: JSONObject): CannaAiData {
+    val sensors = buildList {
+        c.arr("sensors")?.let { a ->
+            for (i in 0 until a.length()) {
+                val s = a.optJSONObject(i) ?: continue
+                // Sensor values arrive as numbers or strings depending on
+                // the probe — render either, never crash on the shape.
+                val raw = if (s.has("value") && !s.isNull("value")) s.opt("value") else null
+                val value = when (raw) {
+                    is Number -> {
+                        val d = raw.toDouble()
+                        if (d == d.toLong().toDouble()) d.toLong().toString()
+                        else String.format(java.util.Locale.US, "%.1f", d)
+                    }
+                    is String -> raw
+                    else -> continue
+                }
+                add(GrowSensor(label = s.str("label") ?: "", value = value, unit = s.str("unit")))
+            }
+        }
+    }
+    val alerts = buildList {
+        c.arr("alerts")?.let { a ->
+            for (i in 0 until a.length()) {
+                val al = a.optJSONObject(i) ?: continue
+                add(
+                    GrowAlert(
+                        text = al.str("text") ?: "",
+                        level = al.str("level"),
+                        at = al.str("at"),
+                    )
+                )
+            }
+        }
+    }
+    val journal = c.obj("journal_latest")
+    return CannaAiData(
+        reachable = c.bool("reachable") ?: false,
+        status = c.str("status"),
+        sensors = sensors,
+        alerts = alerts,
+        journalText = journal?.str("text"),
+        journalAt = journal?.str("at"),
+        providersUp = c.bool("providers_up"),
+    )
+}
+
+private fun parseSystemOne(s: JSONObject): SystemOneData = SystemOneData(
+    reachable = s.bool("reachable") ?: false,
+    metricsOk = s.bool("metrics_ok") ?: false,
+    shimUp = s.bool("shim_up") ?: false,
+    decisionsTotal = s.lng("decisions_total"),
+)
 
 private fun parseActionResult(root: JSONObject, action: String): ActionResult {
     val error = root.str("error")

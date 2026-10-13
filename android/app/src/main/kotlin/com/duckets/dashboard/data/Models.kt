@@ -89,6 +89,11 @@ data class DarkbloomStats(
     val trustStatus: String? = null,
     val trustReason: String? = null,
     val trustPath: String? = null,
+    /** When the Darkbloom auth session ends (epoch seconds, parsed
+     * tolerantly from whatever the daemon wrote — ISO string or epoch).
+     * Past this point the provider silently stops earning until the
+     * session is refreshed, so the app surfaces it before it bites. */
+    val trustSessionExpiresAtEpochSec: Double? = null,
     val earning: Boolean = false,
     val verificationPending: Boolean = true,
     val requestsServed: Long? = null,
@@ -152,6 +157,12 @@ data class EarningsEstimates(
     val onlineFraction: Double? = null,
     val whileServingPerDayUsd: Double? = null,
     val series: List<EarningsPoint> = emptyList(),
+    /** Realized $/day over each trailing window (estimates.components) —
+     * the ingredients the blended per-day headline is averaged from. */
+    val componentLastHourUsd: Double? = null,
+    val componentLast6hUsd: Double? = null,
+    val componentLast24hUsd: Double? = null,
+    val componentLast7dUsd: Double? = null,
 )
 
 /** One point of the bridge's cumulative-earnings ledger series. */
@@ -208,6 +219,18 @@ data class MiningData(
     val batmanLive: BatmanLive? = null,
     val batmanVerified: BatmanVerified? = null,
     val batmanHistory: BatmanHistory? = null,
+    val profit: MiningProfit? = null,
+)
+
+/** Electricity math for Batman-3, computed bridge-side (bridge 1.11+):
+ * the miner's live draw at the configured $/kWh rate, so the verified
+ * card can state profit — not just revenue. */
+data class MiningProfit(
+    val powerW: Double? = null,
+    val rateUsdKwh: Double? = null,
+    val kwhPerDay: Double? = null,
+    val powerCostDay: Double? = null,
+    val netDay: Double? = null,
 )
 
 data class MiningCoin(
@@ -326,6 +349,64 @@ data class ActionsData(
     val darkbloomRunning: Boolean = false,
     val minerRunning: Boolean = false,
     val bridgeVersion: String? = null,
+    val history: List<ActionHistoryEntry> = emptyList(),
+)
+
+/** One entry of the bridge's actions ledger (actions.jsonl), read back
+ * through GET /api/actions (bridge 1.11+): what was tapped, when, and
+ * how the bridge answered. */
+data class ActionHistoryEntry(
+    val tsEpochSec: Double = 0.0,
+    val action: String = "",
+    val target: String? = null,
+    val ok: Boolean = false,
+    val message: String? = null,
+)
+
+// ---------------------------------------------------------------------------
+// Side panels fed by their own bridge endpoints on the slow cadence:
+// the decisions event log (GET /api/decisions), CannaAI (GET /api/cannaai)
+// and SystemOne (GET /api/systemone). All bridge-1.11+ surfaces; every
+// parser is tolerant — an absent endpoint just leaves the panel hidden.
+// ---------------------------------------------------------------------------
+
+/** A state-change event from the bridge's watcher thread: Darkbloom
+ * start/stop/earning, trust changes, LM Studio up/down, loaded-model
+ * changes. [detailText] is a one-line human summary built at parse time
+ * from the event's free-form detail object (may be null). */
+data class DecisionEvent(
+    val tsEpochSec: Double = 0.0,
+    val type: String = "",
+    val detailText: String? = null,
+)
+
+data class CannaAiData(
+    val reachable: Boolean = false,
+    val status: String? = null,
+    val sensors: List<GrowSensor> = emptyList(),
+    val alerts: List<GrowAlert> = emptyList(),
+    val journalText: String? = null,
+    val journalAt: String? = null,
+    val providersUp: Boolean? = null,
+)
+
+data class GrowSensor(
+    val label: String = "",
+    val value: String = "",
+    val unit: String? = null,
+)
+
+data class GrowAlert(
+    val text: String = "",
+    val level: String? = null,
+    val at: String? = null,
+)
+
+data class SystemOneData(
+    val reachable: Boolean = false,
+    val metricsOk: Boolean = false,
+    val shimUp: Boolean = false,
+    val decisionsTotal: Long? = null,
 )
 
 data class LmLoadedModel(val identifier: String = "")

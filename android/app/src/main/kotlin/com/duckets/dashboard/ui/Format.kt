@@ -92,6 +92,19 @@ fun fmtFreshness(lastUpdatedMillis: Long, nowMillis: Long = System.currentTimeMi
     }
 }
 
+/** Relative age of an epoch-seconds timestamp: "just now", "5m ago",
+ * "2h ago", "3d ago" — for the decisions feed and other event lists. */
+fun fmtRelativeTime(epochSec: Double?, nowSec: Double = System.currentTimeMillis() / 1000.0): String {
+    if (epochSec == null || epochSec <= 0) return "—"
+    val age = (nowSec - epochSec).coerceAtLeast(0.0)
+    return when {
+        age < 45 -> "just now"
+        age < 3600 -> "${(age / 60).toLong().coerceAtLeast(1)}m ago"
+        age < 86_400 -> "${(age / 3600).toLong()}h ago"
+        else -> "${(age / 86_400).toLong()}d ago"
+    }
+}
+
 /** Validate a bridge URL draft. Returns null when valid, else a short reason. */
 fun bridgeUrlError(raw: String): String? {
     val v = raw.trim()
