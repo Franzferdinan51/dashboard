@@ -1,8 +1,9 @@
 import SwiftUI
 
-/// Root tab surface — mirrors the Android app's eight destinations in the
-/// same order. Each tab gets its own NavigationStack; the connection
-/// status line lives in Overview only (matching the Android header).
+/// Root tab surface — mirrors the Android app's destinations in the
+/// same order (Grow sits between Actions and Windows). Each tab gets
+/// its own NavigationStack; the connection status line lives in
+/// Overview only (matching the Android header).
 struct RootView: View {
     @EnvironmentObject private var vm: DashboardViewModel
     @State private var selection = 0
@@ -52,18 +53,25 @@ struct RootView: View {
             .tag(5)
 
             NavigationStack {
+                GrowView()
+                    .navigationTitle("Grow")
+            }
+            .tabItem { Label("Grow", systemImage: "leaf.fill") }
+            .tag(6)
+
+            NavigationStack {
                 WindowsView()
                     .navigationTitle("Windows")
             }
             .tabItem { Label("Windows", systemImage: "desktopcomputer") }
-            .tag(6)
+            .tag(7)
 
             NavigationStack {
                 SettingsView()
                     .navigationTitle("Settings")
             }
             .tabItem { Label("Settings", systemImage: "gearshape") }
-            .tag(7)
+            .tag(8)
         }
         .tint(Theme.accent)
         .background(Theme.bg)

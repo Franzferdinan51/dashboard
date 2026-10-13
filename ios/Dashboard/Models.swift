@@ -1340,6 +1340,13 @@ struct CannaaiData {
     var sensors: [GrowSensor] = []
     var alerts: [GrowAlert] = []
     var journalLatest: GrowJournalEntry? = nil
+    /// Analysis history, newest first (bridge 1.12+; the Overview
+    /// card's journalLatest is history's head). Absent on older
+    /// bridges — the Grow tab treats nil as "not sent", [] as empty.
+    var history: [CannaAnalysis]? = nil
+    /// Per-provider status list (bridge 1.12+). Absent on older
+    /// bridges, where only the providersUp aggregate exists.
+    var providers: [CannaProvider]? = nil
     /// providers_up on the wire — a bool ("are providers up") or a
     /// count, depending on the bridge build; both decode attempts run.
     var providersUp: Bool? = nil
@@ -1348,7 +1355,8 @@ struct CannaaiData {
 
 extension CannaaiData: Decodable {
     enum CodingKeys: String, CodingKey {
-        case reachable, status, sensors, alerts, journalLatest, providersUp
+        case reachable, status, sensors, alerts, journalLatest, providersUp,
+             history, providers
     }
 
     init(from decoder: Decoder) throws {
@@ -1358,8 +1366,58 @@ extension CannaaiData: Decodable {
         sensors = c.lossyArray(GrowSensor.self, forKey: .sensors)
         alerts = c.lossyArray(GrowAlert.self, forKey: .alerts)
         journalLatest = c.tolerant(GrowJournalEntry.self, forKey: .journalLatest)
+        // Lossy like the other arrays, but stays nil when the key is
+        // missing or mistyped so the UI can tell "old bridge" apart.
+        history = c.tolerant(LossyArray<CannaAnalysis>.self, forKey: .history)?.elements
+        providers = c.tolerant(LossyArray<CannaProvider>.self, forKey: .providers)?.elements
         providersUp = c.tolerant(Bool.self, forKey: .providersUp)
         providersUpCount = c.tolerant(Int.self, forKey: .providersUp)
+    }
+}
+
+/// One past plant-photo analysis from CannaAI's history (bridge
+/// 1.12+). Every field is optional: an analysis row on the grow app
+/// side may lack a strain, a score, or notes.
+struct CannaAnalysis {
+    var text: String? = nil
+    var strain: String? = nil
+    var confidence: Double? = nil
+    var healthScore: Double? = nil
+    var notes: String? = nil
+    var at: FlexibleTime? = nil
+}
+
+extension CannaAnalysis: Decodable {
+    enum CodingKeys: String, CodingKey {
+        case text, strain, confidence, healthScore, notes, at
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        text = c.tolerant(String.self, forKey: .text).nilIfBlank
+        strain = c.tolerant(String.self, forKey: .strain).nilIfBlank
+        confidence = c.tolerant(Double.self, forKey: .confidence)
+        healthScore = c.tolerant(Double.self, forKey: .healthScore)
+        notes = c.tolerant(String.self, forKey: .notes).nilIfBlank
+        let t = c.flexibleTime(forKey: .at)
+        at = t.isEmpty ? nil : t
+    }
+}
+
+/// One AI provider behind CannaAI (bridge 1.12+): its name and the
+/// grow app's own status word for it ("available", "down", …).
+struct CannaProvider {
+    var name: String? = nil
+    var status: String? = nil
+}
+
+extension CannaProvider: Decodable {
+    enum CodingKeys: String, CodingKey { case name, status }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = c.tolerant(String.self, forKey: .name).nilIfBlank
+        status = c.tolerant(String.self, forKey: .status).nilIfBlank
     }
 }
 
