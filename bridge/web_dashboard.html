@@ -180,6 +180,7 @@
   <button data-view="mining">Mining</button>
   <button data-view="earn">Earnings</button>
   <button data-view="actions">Actions</button>
+  <button data-view="grow">Grow</button>
   <button data-view="win">Windows</button>
   <button data-view="events">Events<span class="bdg" id="evtBadge" style="display:none">0</span></button>
   <button data-view="console">Console</button>
@@ -441,6 +442,31 @@
     <div id="actHistory"></div>
   </section>
 
+  <section class="card s12" data-views="grow" id="growDownCard" style="display:none">
+    <h2>Grow — CannaAI <span class="right">grow service</span></h2>
+    <div style="font-size:13.5px;color:var(--dim)">CannaAI unreachable — the grow service isn't answering right now. This tab fills in on its own once it responds.</div>
+  </section>
+
+  <section class="card s4" data-views="grow" id="growStatusCard">
+    <h2>CannaAI <span class="right" id="growChip"></span></h2>
+    <div class="rows" id="growProvRows"><div class="row"><span class="k">Waiting for CannaAI data from the bridge…</span></div></div>
+  </section>
+
+  <section class="card s4" data-views="grow" id="growSensorsCard">
+    <h2>Sensors <span class="right">latest readings</span></h2>
+    <div class="rows" id="growSensorRows"></div>
+  </section>
+
+  <section class="card s4" data-views="grow" id="growAlertsCard">
+    <h2>Alerts <span class="right">active</span></h2>
+    <div id="growAlerts"></div>
+  </section>
+
+  <section class="card s12" data-views="grow" id="growHistCard">
+    <h2>Analysis history <span class="right">plant analyses from CannaAI</span></h2>
+    <div id="growHistory"></div>
+  </section>
+
   <section class="card s8" data-views="events">
     <h2>Decisions — state changes <span class="right">bridge log</span></h2>
     <div class="chips" id="evtFilters">
@@ -471,7 +497,7 @@
     </div>
     <h2 style="margin-top:16px">About</h2>
     <div class="rows" id="aboutRows"></div>
-    <p style="color:var(--dim);font-size:12.8px">The detailed web companion to the phone/tablet app — same bridge, same data, plus the analytics layer. Everything is read-only except the Actions tab, which can load/unload LM Studio models, restart Darkbloom and the bridge, and start/stop the miner — every action asks first. Shortcuts: 1–9 switch views, R refreshes, P pauses.</p>
+    <p style="color:var(--dim);font-size:12.8px">The detailed web companion to the phone/tablet app — same bridge, same data, plus the analytics layer. Everything is read-only except the Actions tab, which can load/unload LM Studio models, restart Darkbloom and the bridge, and start/stop the miner — every action asks first. Shortcuts: 1–9 and 0 switch views, R refreshes, P pauses.</p>
   </section>
 </main>
 
@@ -1283,7 +1309,8 @@ async function tickSide() {
     try {
       const rc = await fetch("/api/cannaai", { cache: "no-store" });
       if (rc.ok) { const j = await rc.json(); renderGrow(j.cannaai || {}); }
-    } catch (e) { /* keep last */ }
+      else renderGrow(null);
+    } catch (e) { renderGrow(null); }
     try {
       const rs = await fetch("/api/systemone", { cache: "no-store" });
       if (rs.ok) { const j = await rs.json(); renderSystemOne(j.systemone || {}); }
@@ -1395,62 +1422,79 @@ function lmOverviewRows(lms) {
   return out;
 }
 
-/* ---------- grow (CannaAI) + SystemOne side cards ---------- */
-/* Both cards are created on first data and live outside the static
- * markup: Grow renders only while CannaAI answers reachable, and the
- * SystemOne card only once its endpoint has answered at all — an
- * older bridge simply never grows them. */
+/* ---------- grow (CannaAI) tab + SystemOne side card ---------- */
+/* Grow has its own tab (static markup, the #grow* cards); renderGrow
+ * fills it from the same /api/cannaai side fetch that used to feed an
+ * Overview card, and shows an honest unreachable card when the service
+ * doesn't answer — the tab itself always exists. The SystemOne card
+ * below is still created on first data: an older bridge simply never
+ * grows it. */
 function relTs(v) {
   if (v == null) return null;
   if (typeof v === "number") return v;
   return isoTs(v);
 }
-let growCard = null;
+let growData; // undefined until the first /api/cannaai answer
+function applyGrowVisibility() {
+  const down = !growData || !growData.reachable;
+  const on = currentView === "grow";
+  $("growDownCard").style.display = on && down ? "" : "none";
+  for (const id of ["growStatusCard", "growSensorsCard", "growAlertsCard", "growHistCard"])
+    $(id).style.display = on && !down ? "" : "none";
+}
 function renderGrow(c) {
-  if (!c || !c.reachable) {
-    if (growCard) { growCard.remove(); growCard = null; }
-    return;
-  }
-  if (!growCard) {
-    growCard = document.createElement("section");
-    growCard.className = "card s4";
-    growCard.dataset.views = "ov";
-    growCard.innerHTML = `<h2>Grow — CannaAI <span class="right" id="growChip"></span></h2>` +
-      `<div class="rows" id="growRows"></div><div id="growExtra"></div>`;
-    const anchor = $("dbWarmChips").closest("section");
-    if (anchor) anchor.insertAdjacentElement("afterend", growCard);
-    else $("grid").appendChild(growCard);
-    growCard.style.display = currentView === "ov" ? "" : "none";
-  }
+  growData = c;
+  applyGrowVisibility();
+  if (!c || !c.reachable) return;
   const st = String(c.status || "");
   $("growChip").innerHTML = chip(st ? st.toUpperCase() : "UP", st === "ok" || !st ? "ok" : "warn");
-  $("growRows").innerHTML =
-    (c.sensors || []).map(s => {
-      const v = typeof s.value === "number" ? trimNum(s.value) : s.value;
-      return row(s.label || "", `${esc(v ?? "—")}${s.unit ? " " + esc(s.unit) : ""}`);
-    }).join("") +
-    row("AI providers up", esc(c.providers_up ?? "—"));
-  let extra = "";
+  // Providers: named rows from the providers array (bridge 1.12+),
+  // falling back to the providers_up count.
+  const provs = Array.isArray(c.providers) ? c.providers : [];
+  $("growProvRows").innerHTML = provs.length
+    ? provs.map(p => row(p.name || "provider", esc(p.status || "—"))).join("")
+    : row("AI providers up", esc(c.providers_up ?? "—"));
+  const sensors = c.sensors || [];
+  $("growSensorRows").innerHTML = sensors.length
+    ? sensors.map(s => {
+        const v = typeof s.value === "number" ? trimNum(s.value) : s.value;
+        return row(s.label || "", `${esc(v ?? "—")}${s.unit ? " " + esc(s.unit) : ""}`);
+      }).join("")
+    : `<div style="color:var(--faint);font-size:13px">No sensor readings yet — CannaAI has no sensors configured.</div>`;
   const alerts = c.alerts || [];
-  if (alerts.length) {
-    extra += `<h2 style="margin-top:14px">Alerts</h2>` + alerts.map(a => {
-      const lv = String(a.level || "").toLowerCase();
-      const color = lv.includes("crit") || lv.includes("error") || lv.includes("high")
-        ? "var(--red)" : lv.includes("warn") ? "var(--amber)" : "var(--cyan)";
-      const t = relTs(a.at);
-      return `<div class="hrow"><span class="hdot" style="background:${color}"></span>` +
-        `<div class="am"><div>${esc(a.text || "")}</div></div>` +
-        (t ? `<span class="t">${esc(fmtAgo(t))}</span>` : "") + `</div>`;
-    }).join("");
-  }
-  const j = c.journal_latest;
-  if (j && j.text) {
-    const t = relTs(j.at);
-    extra += `<h2 style="margin-top:14px">Latest journal</h2>` +
-      `<div style="font-size:13px">${esc(j.text)}</div>` +
-      (t ? `<div style="color:var(--faint);font-size:12px;margin-top:2px">${esc(fmtAgo(t))}</div>` : "");
-  }
-  $("growExtra").innerHTML = extra;
+  $("growAlerts").innerHTML = alerts.length
+    ? alerts.map(a => {
+        const lv = String(a.level || "").toLowerCase();
+        const color = lv.includes("crit") || lv.includes("error") || lv.includes("high")
+          ? "var(--red)" : lv.includes("warn") ? "var(--amber)" : "var(--cyan)";
+        const t = relTs(a.at);
+        return `<div class="hrow"><span class="hdot" style="background:${color}"></span>` +
+          `<div class="am"><div>${esc(a.text || "")}</div></div>` +
+          (t ? `<span class="t">${esc(fmtAgo(t))}</span>` : "") + `</div>`;
+      }).join("")
+    : `<div style="color:var(--faint);font-size:13px">No active alerts.</div>`;
+  // Analysis history: history[0] IS the latest entry, so journal_latest
+  // is only a fallback for payloads without a history array — never
+  // render both (that would duplicate the newest analysis).
+  let entries = Array.isArray(c.history) ? c.history : [];
+  if (!entries.length && c.journal_latest && c.journal_latest.text)
+    entries = [c.journal_latest];
+  $("growHistory").innerHTML = entries.length
+    ? entries.map(h => {
+        const t = relTs(h.at);
+        const sub = [];
+        if (h.strain) sub.push(esc(h.strain));
+        if (h.confidence != null)
+          sub.push(`confidence ${h.confidence <= 1 ? Math.round(h.confidence * 100) : Math.round(h.confidence)}%`);
+        if (h.health_score != null) sub.push(`health score ${esc(h.health_score)}`);
+        const when = t ? `${new Date(t * 1000).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} · ${fmtAgo(t)}` : "";
+        return `<div class="hrow"><div class="am">` +
+          `<div class="an2">${esc(h.text || "")}</div>` +
+          (sub.length ? `<div class="ad" style="white-space:normal">${sub.join(" · ")}</div>` : "") +
+          (h.notes ? `<div style="color:var(--faint);font-size:12.5px;margin-top:2px">${esc(h.notes)}</div>` : "") +
+          `</div>` + (when ? `<span class="t">${esc(when)}</span>` : "") + `</div>`;
+      }).join("")
+    : `<div style="color:var(--faint);font-size:13px">No analyses yet.</div>`;
 }
 
 let sysoneCard = null;
@@ -1678,6 +1722,7 @@ function setView(v) {
   });
   if (v === "events") { newSinceOpen.clear(); $("evtBadge").style.display = "none"; renderDecisions(); }
   if (v === "actions") fetchActions();
+  if (v === "grow") { applyGrowVisibility(); tickSide(); }
   try { history.replaceState(null, "", "#" + v); } catch (e) {}
   redrawDataCharts();
   drawCharts();
@@ -1752,9 +1797,8 @@ document.addEventListener("visibilitychange", () => {
 document.addEventListener("keydown", e => {
   if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
   if (e.ctrlKey || e.metaKey || e.altKey) return;
-  const views = ["ov", "sys", "db", "mining", "earn", "actions", "win", "events", "console"];
-  const vi = Number(e.key) - 1;
-  if (e.key >= "1" && e.key <= "9" && vi < views.length) setView(views[vi]);
+  const views = ["ov", "sys", "db", "mining", "earn", "actions", "grow", "win", "events", "console"];
+  if (/^[0-9]$/.test(e.key)) setView(views[(Number(e.key) + 9) % 10]);
   else if (e.key === "r" || e.key === "R") tick();
   else if (e.key === "p" || e.key === "P") $("pauseBtn").click();
 });
@@ -1769,7 +1813,7 @@ window.addEventListener("resize", () => {
 initGauges();
 renderCommands();
 const hv = location.hash.replace("#", "");
-const VIEW_KEYS = ["ov", "sys", "db", "mining", "earn", "actions", "win", "events", "console"];
+const VIEW_KEYS = ["ov", "sys", "db", "mining", "earn", "actions", "grow", "win", "events", "console"];
 // The old "all" view was merged into Overview — #all (and anything
 // unrecognized) falls back to Overview rather than a blank page.
 setView(VIEW_KEYS.includes(hv) ? hv : "ov");
