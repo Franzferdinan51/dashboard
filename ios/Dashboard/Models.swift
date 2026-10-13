@@ -686,7 +686,12 @@ struct MiningRig {
 }
 
 extension MiningRig: Decodable {
-    enum CodingKeys: String, CodingKey { case name, hashrate30m, hashrate24h, perDayUsd, perMonthUsd }
+    // NOTE: .convertFromSnakeCase turns hashrate_30m into "hashrate30M"
+    // (it capitalizes the letter after a digit) — raw values must match
+    // the CONVERTED spelling, not the property name. Same for the avg keys.
+    enum CodingKeys: String, CodingKey {
+        case name, hashrate30m = "hashrate30M", hashrate24h = "hashrate24H", perDayUsd, perMonthUsd
+    }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -710,7 +715,7 @@ struct BatmanLive {
 
 extension BatmanLive: Decodable {
     enum CodingKeys: String, CodingKey {
-        case running, hashrateThs, avg1hThs, powerW, gpuTempC, stale
+        case running, hashrateThs, avg1hThs = "avg1HThs", powerW, gpuTempC, stale
         case checkedAtEpochSec = "checkedAt"
     }
 
@@ -889,7 +894,8 @@ extension WindowsData: Decodable {
     enum GpuKeys: String, CodingKey { case name, utilPct, memUsedMb, memTotalMb, tempC, powerW }
     enum NetKeys: String, CodingKey { case rateInBps, rateOutBps }
     enum MinerKeys: String, CodingKey {
-        case running, hashrateThs, avg15mThs, avg1hThs, avg6hThs, powerW, accepted, rejected
+        case running, hashrateThs, avg15mThs = "avg15MThs", avg1hThs = "avg1HThs",
+             avg6hThs = "avg6HThs", powerW, accepted, rejected
     }
 
     init(from decoder: Decoder) throws {
