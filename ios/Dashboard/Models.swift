@@ -300,17 +300,26 @@ struct DarkbloomStats {
     var trustStatus: String? = nil
     var trustReason: String? = nil
     var trustPath: String? = nil
-    /// Epoch seconds when the Darkbloom auth session expires
-    /// (trust.session_expires_at on the wire; a number, not a string).
+    /// trust.session_expires_at on the wire — decoded but DELIBERATELY
+    /// NOT RENDERED: since bridge 1.11.1 it is null by design, because
+    /// the daemon field behind it is the App Attest authorization
+    /// token's expiry, which self-renews every few seconds. It is NOT
+    /// the login session (the daemon exposes no login expiry), and a
+    /// row showing it flickered "expired" while earning was fine. The
+    /// earning signal + lastCreditAt are the real dead-session
+    /// detectors. Keep the decode so the contract stays checked.
     var trustSessionExpiresAt: Double? = nil
     var earning: Bool = false
     var verificationPending: Bool = true
     var requestsServed: Int64? = nil
     var tokensGenerated: Int64? = nil
+    var usageGaps: Int64? = nil
     var capacityTotalGb: Double? = nil
     var gpuActiveGb: Double? = nil
     var gpuCacheGb: Double? = nil
     var freeForLoadGb: Double? = nil
+    var loadHeadroomGb: Double? = nil
+    var loadUsableGb: Double? = nil
     var warmModels: [String] = []
     var advertisedModels: [String] = []
     var slots: [SlotInfo] = []
@@ -318,9 +327,13 @@ struct DarkbloomStats {
     var autopilotPhase: String? = nil
     var autopilotEnabled: Bool? = nil
     var autopilotObserveOnly: Bool? = nil
+    var autopilotPaused: Bool? = nil
+    var autopilotMaxModelSlots: Int? = nil
     var attestAttested: Bool? = nil
     var attestKeyAgeSeconds: Int64? = nil
     var attestLastSuccessAgeSeconds: Int64? = nil
+    var attestGenerationsLast24h: Int64? = nil
+    var attestConsecutiveFailures: Int64? = nil
     var earnings: Earnings? = nil
 }
 
@@ -331,10 +344,15 @@ extension DarkbloomStats: Decodable {
              advertisedModels, slots, residentModels, autopilot, appAttest, earnings
     }
     enum TrustKeys: String, CodingKey { case level, status, reason, path, sessionExpiresAt }
-    enum StatsKeys: String, CodingKey { case requestsServed, tokensGenerated }
-    enum CapacityKeys: String, CodingKey { case totalMemoryGb, gpuActiveGb, gpuCacheGb, freeForLoadGb }
-    enum AutopilotKeys: String, CodingKey { case phase, enabled, observeOnly }
-    enum AttestKeys: String, CodingKey { case attested, keyAgeSeconds, lastSuccessAgeSeconds }
+    enum StatsKeys: String, CodingKey { case requestsServed, tokensGenerated, usageGaps }
+    enum CapacityKeys: String, CodingKey { case totalMemoryGb, gpuActiveGb, gpuCacheGb, freeForLoadGb, loadHeadroomGb, loadUsableGb }
+    enum AutopilotKeys: String, CodingKey { case phase, enabled, observeOnly, paused, maxModelSlots }
+    enum AttestKeys: String, CodingKey {
+        case attested, keyAgeSeconds, lastSuccessAgeSeconds, consecutiveFailures
+        // Digit key: the wire's generations_last_24h becomes
+        // "generationsLast24H" under .convertFromSnakeCase — pin it.
+        case generationsLast24h = "generationsLast24H"
+    }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -358,12 +376,15 @@ extension DarkbloomStats: Decodable {
         if let stats = try? c.nestedContainer(keyedBy: StatsKeys.self, forKey: .stats) {
             requestsServed = stats.tolerant(Int64.self, forKey: .requestsServed)
             tokensGenerated = stats.tolerant(Int64.self, forKey: .tokensGenerated)
+            usageGaps = stats.tolerant(Int64.self, forKey: .usageGaps)
         }
         if let capacity = try? c.nestedContainer(keyedBy: CapacityKeys.self, forKey: .capacity) {
             capacityTotalGb = capacity.tolerant(Double.self, forKey: .totalMemoryGb)
             gpuActiveGb = capacity.tolerant(Double.self, forKey: .gpuActiveGb)
             gpuCacheGb = capacity.tolerant(Double.self, forKey: .gpuCacheGb)
             freeForLoadGb = capacity.tolerant(Double.self, forKey: .freeForLoadGb)
+            loadHeadroomGb = capacity.tolerant(Double.self, forKey: .loadHeadroomGb)
+            loadUsableGb = capacity.tolerant(Double.self, forKey: .loadUsableGb)
         }
         warmModels = c.lossyArray(String.self, forKey: .warmModels)
         advertisedModels = c.lossyArray(String.self, forKey: .advertisedModels)
@@ -373,11 +394,15 @@ extension DarkbloomStats: Decodable {
             autopilotPhase = autopilot.tolerant(String.self, forKey: .phase).nilIfBlank
             autopilotEnabled = autopilot.tolerant(Bool.self, forKey: .enabled)
             autopilotObserveOnly = autopilot.tolerant(Bool.self, forKey: .observeOnly)
+            autopilotPaused = autopilot.tolerant(Bool.self, forKey: .paused)
+            autopilotMaxModelSlots = autopilot.tolerant(Int.self, forKey: .maxModelSlots)
         }
         if let attest = try? c.nestedContainer(keyedBy: AttestKeys.self, forKey: .appAttest) {
             attestAttested = attest.tolerant(Bool.self, forKey: .attested)
             attestKeyAgeSeconds = attest.tolerant(Int64.self, forKey: .keyAgeSeconds)
             attestLastSuccessAgeSeconds = attest.tolerant(Int64.self, forKey: .lastSuccessAgeSeconds)
+            attestGenerationsLast24h = attest.tolerant(Int64.self, forKey: .generationsLast24h)
+            attestConsecutiveFailures = attest.tolerant(Int64.self, forKey: .consecutiveFailures)
         }
         earnings = c.tolerant(Earnings.self, forKey: .earnings)
     }
@@ -448,13 +473,21 @@ struct Earnings {
     var baseRewardsMicroRecent: Int64 = 0
     var perModel: [ModelEarnings] = []
     var recent: [EarningEntry] = []
+    /// The full ledger window (up to history_limit entries, same
+    /// shape as `recent`) — `recent` is just its newest few.
+    var history: [EarningEntry] = []
+    /// Epoch seconds of the most recent ledger credit (paid job or
+    /// base reward) — the dead-session heartbeat: earning can only be
+    /// real if this keeps moving.
+    var lastCreditAt: Double? = nil
     var estimates: EarningsEstimates? = nil
 }
 
 extension Earnings: Decodable {
     enum CodingKeys: String, CodingKey {
         case balanceUsd, withdrawableUsd, totalUsd, jobsInHistory,
-             baseRewardsMicroUsdRecent, perModelRecent, recent, estimates
+             baseRewardsMicroUsdRecent, perModelRecent, recent, history,
+             lastCreditAt, estimates
     }
 
     init(from decoder: Decoder) throws {
@@ -472,6 +505,8 @@ extension Earnings: Decodable {
                 .sorted { $0.microUsd > $1.microUsd }
         }
         recent = c.lossyArray(EarningEntry.self, forKey: .recent)
+        history = c.lossyArray(EarningEntry.self, forKey: .history)
+        lastCreditAt = c.tolerant(Double.self, forKey: .lastCreditAt)
         estimates = c.tolerant(EarningsEstimates.self, forKey: .estimates)
     }
 }
@@ -866,6 +901,11 @@ struct BatmanHistory {
     var sampleCount: Int? = nil
     var avgActiveThs: Double? = nil
     var avgOverallThs: Double? = nil
+    /// Trailing-24h overall average and the span that window actually
+    /// covers (the bridge's per-minute ledger is younger than 24h, so
+    /// the span is stated rather than implied).
+    var avg24hOverallThs: Double? = nil
+    var win24SpanHours: Double? = nil
     var uptimeFraction: Double? = nil
     var realizedPrlEst: Double? = nil
     var realizedUsdNetEst: Double? = nil
@@ -878,6 +918,11 @@ extension BatmanHistory: Decodable {
              uptimeFraction, realizedPrlEst, realizedUsdNetEst, realizedBasis
         case coverageFromEpochSec = "coverageFrom"
         case coverageToEpochSec = "coverageTo"
+        // Digit keys: the wire's avg_24h_overall_ths / win24_span_hours
+        // become "avg24HOverallThs" / "win24SpanHours" under
+        // .convertFromSnakeCase — pin the raw values.
+        case avg24hOverallThs = "avg24HOverallThs"
+        case win24SpanHours = "win24SpanHours"
     }
 
     init(from decoder: Decoder) throws {
@@ -889,6 +934,8 @@ extension BatmanHistory: Decodable {
         sampleCount = c.tolerant(Int.self, forKey: .sampleCount)
         avgActiveThs = c.tolerant(Double.self, forKey: .avgActiveThs)
         avgOverallThs = c.tolerant(Double.self, forKey: .avgOverallThs)
+        avg24hOverallThs = c.tolerant(Double.self, forKey: .avg24hOverallThs)
+        win24SpanHours = c.tolerant(Double.self, forKey: .win24SpanHours)
         uptimeFraction = c.tolerant(Double.self, forKey: .uptimeFraction)
         realizedPrlEst = c.tolerant(Double.self, forKey: .realizedPrlEst)
         realizedUsdNetEst = c.tolerant(Double.self, forKey: .realizedUsdNetEst)
@@ -929,6 +976,9 @@ extension WindowsResponse: Decodable {
 struct WindowsData {
     var reachable: Bool = false
     var stale: Bool = false
+    /// Epoch seconds when the bridge fetched this snapshot from the
+    /// PC (for a last_good snapshot: when that sample was fetched).
+    var fetchedAt: Double? = nil
     var osName: String? = nil
     var osVersion: String? = nil
     var uptimeSeconds: Int64? = nil
@@ -961,7 +1011,7 @@ struct WindowsData {
 
 extension WindowsData: Decodable {
     enum CodingKeys: String, CodingKey {
-        case reachable, stale, osName, osVersion, uptimeSeconds,
+        case reachable, stale, fetchedAt, osName, osVersion, uptimeSeconds,
              cpu, memory, gpu, disks, network, miner, lastGood
     }
     enum CpuKeys: String, CodingKey { case name, loadPct, cores, logical }
@@ -987,6 +1037,7 @@ extension WindowsData: Decodable {
         }
         reachable = isReachable
         stale = c.tolerant(Bool.self, forKey: .stale) ?? false
+        fetchedAt = c.tolerant(Double.self, forKey: .fetchedAt)
         osName = c.tolerant(String.self, forKey: .osName).nilIfBlank
         osVersion = c.tolerant(String.self, forKey: .osVersion).nilIfBlank
         uptimeSeconds = c.tolerant(Int64.self, forKey: .uptimeSeconds)

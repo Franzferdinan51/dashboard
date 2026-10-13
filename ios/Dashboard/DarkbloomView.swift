@@ -164,11 +164,19 @@ struct DarkbloomView: View {
                 KVRow("Trust level", db.trustLevel ?? "—")
                 KVRow("Reason", db.trustReason ?? "—")
                 KVRow("Path", db.trustPath ?? "—")
-                KVRow("Session expires", sessionExpiryText(db.trustSessionExpiresAt))
+                // No session-expiry row: trust.session_expires_at is the
+                // self-renewing App Attest token (null by design since
+                // bridge 1.11.1), not the login session — see Models.
                 KVRow("App Attest", attestText(db.attestAttested))
                 KVRow("Attest key age", fmtDuration(db.attestKeyAgeSeconds.map { Double($0) }))
                 KVRow("Last Apple success",
                       db.attestLastSuccessAgeSeconds.map { fmtDuration(Double($0)) + " ago" } ?? "—")
+                if let g = db.attestGenerationsLast24h {
+                    KVRow("Generations (24h)", countText(g))
+                }
+                if let f = db.attestConsecutiveFailures {
+                    KVRow("Consecutive failures", countText(f))
+                }
                 if db.verificationPending {
                     Text("Verification is still pending on Darkbloom's coordinator. Paid jobs and base rewards land anyway — the ledger is the ground truth.")
                         .font(.caption)
@@ -176,16 +184,6 @@ struct DarkbloomView: View {
                 }
             }
         }
-    }
-
-    /// trust.session_expires_at is epoch seconds on the wire:
-    /// "in 5h 12m" while valid, "expired" once past (the session
-    /// silently stops earning then — surface it before it bites).
-    private func sessionExpiryText(_ epochSec: Double?) -> String {
-        guard let epochSec, epochSec.isFinite, epochSec > 0 else { return "—" }
-        let remaining = epochSec - Date().timeIntervalSince1970
-        if remaining <= 0 { return "expired" }
-        return "in " + fmtDuration(remaining)
     }
 
     private func attestText(_ v: Bool?) -> String {
@@ -228,8 +226,15 @@ struct DarkbloomView: View {
                     KVRow("Lifetime total", fmtUsd(e.totalUsd))
                     KVRow("Paid jobs (recent history)", countText(e.jobsInHistory.map { Int64($0) }))
                     KVRow("Base rewards (recent)", microToUsd(e.baseRewardsMicroRecent))
+                    if let lc = e.lastCreditAt, !fmtRelativeTime(lc).isEmpty {
+                        // The dead-session heartbeat: if this stops
+                        // moving, earning has stopped — whatever the
+                        // status chips claim.
+                        KVRow("Last credit", fmtRelativeTime(lc))
+                    }
                     perModelBlock(e)
                     recentBlock(e)
+                    historyBlock(e)
                 } else {
                     // No ledger data in this sample: say so — never
                     // fabricate a $0 balance or a "$1.00 to go" claim
@@ -246,6 +251,9 @@ struct DarkbloomView: View {
                 }
                 KVRow("Requests served (session)", countText(db.requestsServed))
                 KVRow("Tokens generated (session)", countText(db.tokensGenerated))
+                if let gaps = db.usageGaps {
+                    KVRow("Usage gaps", countText(gaps))
+                }
             }
         }
     }
@@ -301,27 +309,43 @@ struct DarkbloomView: View {
         if !e.recent.isEmpty {
             SectionHeader("Recent jobs")
             ForEach(Array(e.recent.enumerated()), id: \.offset) { _, entry in
-                HStack(alignment: .top, spacing: 10) {
-                    Circle()
-                        .fill(Theme.good)
-                        .frame(width: 8, height: 8)
-                        .padding(.top, 5)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(entry.model == "base_reward" ? "Base reward" : shortModelName(entry.model))
-                            .font(.subheadline)
-                            .foregroundStyle(cMist)
-                            .lineLimit(1)
-                        Text(recentSubline(entry))
-                            .font(.caption)
-                            .foregroundStyle(cFaint)
-                            .lineLimit(1)
-                    }
-                    Spacer()
-                    Text(microToUsd(entry.amountMicroUsd))
-                        .font(.subheadline)
-                        .foregroundStyle(Theme.good)
-                }
+                jobRow(entry)
             }
+        }
+    }
+
+    /// The full ledger window behind `recent` (up to the bridge's
+    /// history limit), same row style — the complete list of credits.
+    @ViewBuilder
+    private func historyBlock(_ e: Earnings) -> some View {
+        if !e.history.isEmpty {
+            SectionHeader("Full ledger")
+            ForEach(Array(e.history.enumerated()), id: \.offset) { _, entry in
+                jobRow(entry)
+            }
+        }
+    }
+
+    private func jobRow(_ entry: EarningEntry) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Circle()
+                .fill(Theme.good)
+                .frame(width: 8, height: 8)
+                .padding(.top, 5)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(entry.model == "base_reward" ? "Base reward" : shortModelName(entry.model))
+                    .font(.subheadline)
+                    .foregroundStyle(cMist)
+                    .lineLimit(1)
+                Text(recentSubline(entry))
+                    .font(.caption)
+                    .foregroundStyle(cFaint)
+                    .lineLimit(1)
+            }
+            Spacer()
+            Text(microToUsd(entry.amountMicroUsd))
+                .font(.subheadline)
+                .foregroundStyle(Theme.good)
         }
     }
 
@@ -461,11 +485,23 @@ struct DarkbloomView: View {
                 KVRow("Active", gbText(db.gpuActiveGb))
                 KVRow("Cache", gbText(db.gpuCacheGb, digits: 2))
                 KVRow("Free for new loads", gbText(db.freeForLoadGb))
+                if let v = db.loadUsableGb {
+                    KVRow("Load usable", gbText(v))
+                }
+                if let v = db.loadHeadroomGb {
+                    KVRow("Load headroom", gbText(v))
+                }
                 KVRow("Total", gbText(db.capacityTotalGb, digits: 0))
                 SectionHeader("Autopilot")
                 KVRow("Phase", db.autopilotPhase ?? "—")
                 KVRow("Enabled", db.autopilotEnabled.map { $0 ? "yes" : "no" } ?? "—")
                 KVRow("Mode", db.autopilotObserveOnly.map { $0 ? "shadow / observe only" : "active" } ?? "—")
+                if let p = db.autopilotPaused {
+                    KVRow("Paused", p ? "yes" : "no")
+                }
+                if let s = db.autopilotMaxModelSlots {
+                    KVRow("Max model slots", "\(s)")
+                }
             }
         }
     }

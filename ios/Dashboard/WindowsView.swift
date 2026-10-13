@@ -75,6 +75,11 @@ struct WindowsView: View {
             Text("Batman-3")
                 .font(.system(size: 30, weight: .bold))
                 .foregroundStyle(Theme.mist)
+            if let fetchedAt = w.fetchedAt {
+                Text("PC data as of \(asOfClock(fetchedAt))")
+                    .font(.system(size: 13))
+                    .foregroundStyle(Theme.textFaint)
+            }
             KVRow("Uptime", fmtDuration(w.uptimeSeconds.map { Double($0) }))
             KVRow("CPU load", w.cpuLoadPct.map { "\($0)%" } ?? "—")
             KVRow("Net in", fmtRate(w.netRateInBps.map { Int64($0) }))
@@ -173,6 +178,15 @@ struct WindowsView: View {
         guard let accepted = w.minerAccepted else { return "—" }
         return "\(winCount(accepted)) accepted · \(winCount(w.minerRejected ?? 0)) rejected"
     }
+}
+
+/// "9:03 PM" from epoch seconds — when the bridge fetched the
+/// snapshot this screen is showing.
+private func asOfClock(_ epochSec: Double) -> String {
+    let f = DateFormatter()
+    f.dateFormat = "h:mm a"
+    f.locale = Locale(identifier: "en_US")
+    return f.string(from: Date(timeIntervalSince1970: epochSec))
 }
 
 /// Grouped count ("1,234"), Android's fmtCount.

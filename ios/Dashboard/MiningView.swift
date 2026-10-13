@@ -151,6 +151,12 @@ struct MiningView: View {
                 KVRow("Coverage", "\(clockText(h.coverageFromEpochSec)) → \(clockText(h.coverageToEpochSec))")
                 KVRow("Average (active)", fmtThs(h.avgActiveThs))
                 KVRow("Average (overall)", fmtThs(h.avgOverallThs))
+                if let avg24 = h.avg24hOverallThs {
+                    KVRow("24h overall avg",
+                          h.win24SpanHours != nil
+                              ? "\(fmtThs(avg24)) (over \(String(format: "%.1f", h.win24SpanHours!))h)"
+                              : fmtThs(avg24))
+                }
                 KVRow("Uptime in log",
                       h.uptimeFraction.map { "\(Int(($0 * 100).rounded()))%" } ?? "—")
                 KVRow("Realized in window",
