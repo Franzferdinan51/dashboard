@@ -165,6 +165,36 @@ class DashboardRepository(
         }
     }
 
+    /** Outcome of POST /api/cannaai/vision-model (bridge 1.14+):
+     * 200 = the selection is set (CannaAI restarts onto it), 409 =
+     * an analysis is pending and the switch must wait, anything else
+     * is an error with the bridge's words when it sent any. */
+    data class VisionModelResult(
+        val ok: Boolean = false,
+        val model: String? = null,
+        val conflict: Boolean = false,
+        val error: String? = null,
+    )
+
+    suspend fun postVisionModel(baseUrl: String, model: String): VisionModelResult {
+        val payload = JSONObject()
+        payload.put("model", model)
+        val (code, text) = postRaw(baseUrl, "/api/cannaai/vision-model", payload)
+        val body = withContext(Dispatchers.IO) {
+            try { JSONObject(text) } catch (e: JSONException) { null }
+        }
+        val error = body?.str("error")
+        return when (code) {
+            200 -> if (body?.bool("ok") == false) {
+                VisionModelResult(error = error ?: "The bridge refused that model.")
+            } else {
+                VisionModelResult(ok = true, model = body?.str("model") ?: model)
+            }
+            409 -> VisionModelResult(conflict = true, error = error)
+            else -> VisionModelResult(error = error ?: "Bridge returned HTTP $code")
+        }
+    }
+
     /**
      * POST counterpart to getJson, with two deliberate differences: it
      * runs on ACTION_CLIENT (an action may take minutes server-side), and
@@ -946,6 +976,25 @@ private fun parseCannaAi(c: JSONObject): CannaAiData {
             lastError = an.str("last_error"),
         )
     }
+    // Bridge 1.14+: the vision models on offer (smallest first) —
+    // entries without an id are noise, skip them. Absent on older
+    // bridges, which hides the Analyze card's model dropdown.
+    val visionModels = buildList {
+        c.arr("vision_models")?.let { a ->
+            for (i in 0 until a.length()) {
+                val m = a.optJSONObject(i) ?: continue
+                val id = m.str("id") ?: continue
+                add(
+                    VisionModel(
+                        id = id,
+                        sizeGb = m.dbl("size_gb"),
+                        loaded = m.bool("loaded") ?: false,
+                        knownIssue = m.str("known_issue"),
+                    )
+                )
+            }
+        }
+    }
     val journal = c.obj("journal_latest")
     return CannaAiData(
         reachable = c.bool("reachable") ?: false,
@@ -961,6 +1010,8 @@ private fun parseCannaAi(c: JSONObject): CannaAiData {
         components = components,
         environment = environment,
         analyze = analyze,
+        visionModels = visionModels,
+        visionModel = c.str("vision_model"),
     )
 }
 

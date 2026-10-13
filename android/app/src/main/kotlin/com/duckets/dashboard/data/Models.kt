@@ -431,6 +431,24 @@ data class CannaAiData(
     val components: List<GrowComponent> = emptyList(),
     val environment: GrowEnvironment? = null,
     val analyze: CannaAnalyze? = null,
+    // Bridge 1.14+: the LM Studio vision models CannaAI can analyze
+    // photos with (smallest first) and the effective selection —
+    // null [visionModel] means CannaAI auto-picks. Both absent on
+    // older bridges, which hides the Analyze card's model dropdown.
+    val visionModels: List<VisionModel> = emptyList(),
+    val visionModel: String? = null,
+)
+
+/** One selectable vision model for plant-photo analysis (bridge
+ * 1.14+). [knownIssue] flags picks with a recorded problem (e.g. a
+ * build that crashes the model server) — still selectable, it's
+ * the user's call, but the warning renders in the menu and, while
+ * such a model is the selection, under the selector. */
+data class VisionModel(
+    val id: String = "",
+    val sizeGb: Double? = null,
+    val loaded: Boolean = false,
+    val knownIssue: String? = null,
 )
 
 data class GrowSensor(

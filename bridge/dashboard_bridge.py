@@ -26,6 +26,11 @@ Endpoints:
     POST /api/cannaai/analyze -> forward a plant photo (base64 JSON) to
                            CannaAI's analyzer in the background; progress
                            shows as `analyze` inside GET /api/cannaai
+    POST /api/cannaai/vision-model -> pin the analyzer's vision model
+                           {"model": <id>}: writes LM_STUDIO_VISION_MODEL
+                           into CannaAI's backend LaunchAgent plist and
+                           restarts it; GET /api/cannaai lists the choices
+                           as `vision_models` + the current `vision_model`
     POST /api/action    -> run an action {"action": ..., "target": ...}
                            (lm_load / lm_unload / darkbloom_restart /
                            miner_start / miner_stop / bridge_restart);
@@ -47,6 +52,7 @@ import decimal
 import gzip
 import json
 import os
+import plistlib
 import re
 import shutil
 import subprocess
@@ -64,7 +70,7 @@ DARKBLOOM_STATE = os.path.join(HOME, ".darkbloom", "daemon-state.json")
 DARKBLOOM_TOKEN = os.path.join(HOME, ".darkbloom", "auth_token")
 LMSTUDIO_KEY = os.path.join(HOME, ".config", "lmstudio", "api_key")
 LMSTUDIO_BASE = "http://127.0.0.1:1234"
-BRIDGE_VERSION = "1.13.0"
+BRIDGE_VERSION = "1.14.0"
 _STARTED_AT = time.time()
 
 # --------------------------------------------------------------------------
@@ -950,16 +956,23 @@ def darkbloom_stats():
 # lm studio
 # --------------------------------------------------------------------------
 
+def _lmstudio_headers():
+    """Bearer auth for LM Studio's local API, from the key file the
+    user provisioned (absent key = LM Studio auth is off, no header)."""
+    headers = {}
+    try:
+        with open(LMSTUDIO_KEY) as f:
+            key = f.read().strip()
+        if key:
+            headers["Authorization"] = f"Bearer {key}"
+    except Exception:
+        pass
+    return headers
+
+
 def lmstudio_stats():
     def fetch():
-        headers = {}
-        try:
-            with open(LMSTUDIO_KEY) as f:
-                key = f.read().strip()
-            if key:
-                headers["Authorization"] = f"Bearer {key}"
-        except Exception:
-            pass
+        headers = _lmstudio_headers()
         try:
             data = http_get_json(f"{LMSTUDIO_BASE}/api/v0/models", headers=headers, timeout=4)
             models = []
@@ -1582,7 +1595,9 @@ def cannaai_stats():
                                    timeout=5)
         except Exception:
             return {"reachable": False, "components": [],
-                    "environment": env}
+                    "environment": env,
+                    "vision_models": _vision_models(),
+                    "vision_model": _vision_model_selection()}
         hist_rows = _cannaai_history_rows()
         prov_rows = _cannaai_provider_rows()
         return {"reachable": True,
@@ -1594,7 +1609,9 @@ def cannaai_stats():
                 "history": _cannaai_history(hist_rows),
                 "providers": _cannaai_providers(prov_rows),
                 "providers_up": _cannaai_providers_up(prov_rows),
-                "environment": env}
+                "environment": env,
+                "vision_models": _vision_models(),
+                "vision_model": _vision_model_selection()}
     result = cached("cannaai", 30, fetch, swr=True)
     if isinstance(result, dict):
         # `analyze` is live in-memory state — a pending flag inside a
@@ -1603,6 +1620,139 @@ def cannaai_stats():
         result = dict(result)
         result["analyze"] = _analyze_state_view()
     return result
+
+
+# --------------------------------------------------------------------------
+# CannaAI vision-model selection
+#
+# Which LM Studio model analyzes plant photos is pinned by the
+# LM_STUDIO_VISION_MODEL env var in CannaAI's backend LaunchAgent
+# plist — CannaAI reads it at process start, so changing the pin means
+# editing the plist + restarting that service (POST
+# /api/cannaai/vision-model below). The Grow tab renders the choices
+# into a picker. Vision-capable uses CannaAI's resolver's own
+# criterion against /api/v1/models (capabilities.vision is true and
+# type is not embedding) so the list never offers a model the
+# analyzer would reject.
+# --------------------------------------------------------------------------
+
+CANNAI_BACKEND_PLIST = os.path.join(
+    HOME, "Library", "LaunchAgents", "com.duckets.cannaai-backend.plist")
+CANNAI_BACKEND_LABEL = "com.duckets.cannaai-backend"
+
+# Both MiniCPM-V 4.7 builds SIGABRT llama-server on load (verified
+# twice, 2026-10-12) — flagged in the picker so they aren't chosen
+# again by accident. Everything else gets the benefit of the doubt.
+_VISION_KNOWN_ISSUES = {
+    "minicpm-v-4.7-35b-a3b@q4_k_m":
+        "crashes LM Studio on load (verified 2026-10-12)",
+    "minicpm-v-4.7-35b-a3b@q8_0":
+        "crashes LM Studio on load (verified 2026-10-12)",
+}
+
+
+def _vision_models():
+    """Vision-capable LM Studio models, smallest first:
+    [{id, size_gb, loaded, known_issue}]. [] on any failure — the
+    picker is a convenience and must never break the payload."""
+    try:
+        data = http_get_json(f"{LMSTUDIO_BASE}/api/v1/models",
+                             headers=_lmstudio_headers(), timeout=4)
+    except Exception:
+        return []
+    rows = data.get("models") if isinstance(data, dict) else None
+    if not isinstance(rows, list):
+        return []
+    # Size fallback: the /api/lmstudio library data (v0) when a v1 row
+    # is missing its size_bytes.
+    lib_sizes = {}
+    try:
+        for m in lmstudio_stats().get("models") or []:
+            if m.get("id") and isinstance(m.get("size_bytes"),
+                                           (int, float)):
+                lib_sizes[m["id"]] = m["size_bytes"]
+    except Exception:
+        pass
+    out = []
+    for m in rows:
+        if not isinstance(m, dict):
+            continue
+        caps = m.get("capabilities")
+        if not isinstance(caps, dict) or caps.get("vision") is not True:
+            continue
+        if m.get("type") == "embedding":
+            continue
+        mid = m.get("key") or m.get("id")
+        if not isinstance(mid, str) or not mid:
+            continue
+        size = m.get("size_bytes")
+        if not isinstance(size, (int, float)):
+            size = lib_sizes.get(mid)
+        out.append({
+            "id": mid,
+            "size_gb": round(size / 1e9, 1)
+                       if isinstance(size, (int, float)) else None,
+            "loaded": bool(m.get("loaded_instances")),
+            "known_issue": _VISION_KNOWN_ISSUES.get(mid),
+        })
+    out.sort(key=lambda e: (e["size_gb"] is None, e["size_gb"] or 0))
+    return out
+
+
+def _vision_model_selection():
+    """The effective pin: LM_STUDIO_VISION_MODEL from CannaAI's
+    backend plist. Read fresh on every payload build (the cannaai
+    snapshot is SWR-cached only 30s) — a stale read here is how the
+    wrong model gets blamed. None when unset or unreadable."""
+    try:
+        with open(CANNAI_BACKEND_PLIST, "rb") as f:
+            plist = plistlib.load(f)
+        env = plist.get("EnvironmentVariables")
+        if isinstance(env, dict):
+            val = env.get("LM_STUDIO_VISION_MODEL")
+            if isinstance(val, str) and val:
+                return val
+    except Exception:
+        pass
+    return None
+
+
+def _set_vision_model(model):
+    """Write the pin into CannaAI's backend plist (backing the plist
+    up first) and kickstart the service so it re-reads its env.
+    (ok, message) — the caller logs the attempt."""
+    try:
+        with open(CANNAI_BACKEND_PLIST, "rb") as f:
+            plist = plistlib.load(f)
+    except Exception as e:
+        return False, f"cannot read CannaAI backend plist: {e}"[:200]
+    env = plist.get("EnvironmentVariables")
+    if not isinstance(env, dict):
+        env = {}
+        plist["EnvironmentVariables"] = env
+    env["LM_STUDIO_VISION_MODEL"] = model
+    try:
+        shutil.copyfile(CANNAI_BACKEND_PLIST,
+                        CANNAI_BACKEND_PLIST + ".bak-visionmodel")
+        tmp = CANNAI_BACKEND_PLIST + ".tmp-visionmodel"
+        with open(tmp, "wb") as f:
+            plistlib.dump(plist, f)
+        try:
+            # plistlib writes with umask perms; the plist ships 0600 —
+            # keep the replacement exactly as tight as the original.
+            os.chmod(tmp, os.stat(CANNAI_BACKEND_PLIST).st_mode & 0o777)
+        except Exception:
+            pass
+        os.replace(tmp, CANNAI_BACKEND_PLIST)
+    except Exception as e:
+        return False, f"cannot write CannaAI backend plist: {e}"[:200]
+    # Same kickstart shape as the darkbloom_restart action.
+    rc, out, err = _run_full(
+        ["launchctl", "kickstart", "-k",
+         f"gui/{os.getuid()}/{CANNAI_BACKEND_LABEL}"], timeout=30)
+    if rc != 0:
+        return False, _tail(err or out) or f"launchctl exited {rc}"
+    return True, f"Vision model set to {model}; CannaAI backend restarted"
 
 
 # --------------------------------------------------------------------------
@@ -2661,6 +2811,56 @@ class Handler(BaseHTTPRequestHandler):
                     args=(image_b64, strain or None, notes or None),
                     daemon=True, name="cannaai-analyze").start()
                 self._send({"ok": True}, 202)
+                return
+            if path == "/api/cannaai/vision-model":
+                length = int(self.headers.get("Content-Length") or 0)
+                raw = self.rfile.read(length) if length > 0 else b""
+                try:
+                    payload = json.loads(raw.decode("utf-8")) if raw \
+                        else {}
+                except Exception:
+                    payload = None
+                if not isinstance(payload, dict):
+                    self._send({"ok": False,
+                                "error": "body must be a JSON object"}, 400)
+                    return
+                model = payload.get("model")
+                if not isinstance(model, str) or not model:
+                    self._send({"ok": False,
+                                "error": "missing 'model'"}, 400)
+                    return
+                if model not in [m["id"] for m in _vision_models()]:
+                    _log_action("cannaai_vision_model", model, False,
+                                f"rejected: not a vision model: {model}")
+                    self._send({"ok": False,
+                                "error": f"unknown vision model: {model}"},
+                               400)
+                    return
+                # The pin is read at CannaAI process start, so applying
+                # it restarts the backend — which would kill an analysis
+                # in flight. Refuse while one is running; the picker
+                # applies to the next analysis.
+                with _analyze_lock:
+                    pending = _analyze_state["pending"]
+                if pending:
+                    _log_action("cannaai_vision_model", model, False,
+                                "rejected: an analysis is in progress")
+                    self._send({"ok": False,
+                                "error": "an analysis is in progress — "
+                                         "the model applies to the next "
+                                         "one; try again when it "
+                                         "finishes"}, 409)
+                    return
+                ok, message = _set_vision_model(model)
+                _log_action("cannaai_vision_model", model, ok, message)
+                if ok:
+                    # The cannaai snapshot now misreports the selection
+                    # until its next rebuild — drop it so the picker
+                    # reads back what was just written.
+                    _invalidate("cannaai")
+                    self._send({"ok": True, "model": model}, 200)
+                else:
+                    self._send({"ok": False, "error": message}, 200)
                 return
             if path != "/mcp":
                 # The request body (if any) is never read on this path —

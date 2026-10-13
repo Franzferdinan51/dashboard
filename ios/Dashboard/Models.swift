@@ -1365,12 +1365,20 @@ struct CannaaiData {
     /// uploaded plant photo is currently being analyzed, and the
     /// last failure if one died.
     var analyze: CannaAnalyzeState? = nil
+    /// The vision models CannaAI can analyze photos with (bridge
+    /// 1.14+), smallest first — the Analyze card's picker list.
+    /// Absent on older bridges; the picker hides without it.
+    var visionModels: [VisionModel]? = nil
+    /// The currently effective vision model id (bridge 1.14+); nil
+    /// means nothing is pinned and CannaAI picks on its own.
+    var visionModel: String? = nil
 }
 
 extension CannaaiData: Decodable {
     enum CodingKeys: String, CodingKey {
         case reachable, status, sensors, alerts, journalLatest, providersUp,
-             history, providers, components, environment, analyze
+             history, providers, components, environment, analyze,
+             visionModels, visionModel
     }
 
     init(from decoder: Decoder) throws {
@@ -1389,6 +1397,8 @@ extension CannaaiData: Decodable {
         components = c.tolerant(LossyArray<CannaComponent>.self, forKey: .components)?.elements
         environment = c.tolerant(GrowEnvironment.self, forKey: .environment)
         analyze = c.tolerant(CannaAnalyzeState.self, forKey: .analyze)
+        visionModels = c.tolerant(LossyArray<VisionModel>.self, forKey: .visionModels)?.elements
+        visionModel = c.tolerant(String.self, forKey: .visionModel).nilIfBlank
     }
 }
 
@@ -1542,6 +1552,31 @@ extension CannaAnalyzeState: Decodable {
         pending = c.tolerant(Bool.self, forKey: .pending) ?? false
         startedAt = c.flexibleTime(forKey: .startedAt)
         lastError = c.tolerant(String.self, forKey: .lastError).nilIfBlank
+    }
+}
+
+/// One vision-capable model behind CannaAI (bridge 1.14+), as the
+/// bridge's LM Studio scan reports it: the model id, its size when
+/// known, whether it's already loaded, and a known-issue warning
+/// when this build is a documented crasher (both MiniCPM-V 4.7
+/// quants SIGABRT llama-server on load — the auto-pick chose one,
+/// which is why the picker exists).
+struct VisionModel {
+    var id: String = ""
+    var sizeGb: Double? = nil
+    var loaded: Bool = false
+    var knownIssue: String? = nil
+}
+
+extension VisionModel: Decodable {
+    enum CodingKeys: String, CodingKey { case id, sizeGb, loaded, knownIssue }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = c.tolerant(String.self, forKey: .id).nilIfBlank ?? ""
+        sizeGb = c.tolerant(Double.self, forKey: .sizeGb)
+        loaded = c.tolerant(Bool.self, forKey: .loaded) ?? false
+        knownIssue = c.tolerant(String.self, forKey: .knownIssue).nilIfBlank
     }
 }
 

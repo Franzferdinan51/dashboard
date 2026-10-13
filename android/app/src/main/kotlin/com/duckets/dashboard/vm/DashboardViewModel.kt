@@ -83,6 +83,10 @@ data class ActionOutcome(val message: String, val ok: Boolean)
  * refused because one is already running, or failed. */
 data class GrowUiState(
     val analyzePhase: AnalyzePhase = AnalyzePhase.Idle,
+    /** Vision-model switch (bridge 1.14+): transient feedback for the
+     * Analyze card's model dropdown. The durable truth is the
+     * payload's vision_model — a fresh payload clears the note. */
+    val modelPhase: ModelSelectPhase = ModelSelectPhase.Idle,
 )
 
 sealed interface AnalyzePhase {
@@ -91,6 +95,13 @@ sealed interface AnalyzePhase {
     data object Queued : AnalyzePhase
     data object AlreadyRunning : AnalyzePhase
     data class Failed(val message: String) : AnalyzePhase
+}
+
+sealed interface ModelSelectPhase {
+    data object Idle : ModelSelectPhase
+    data object Setting : ModelSelectPhase
+    data class SetOk(val model: String) : ModelSelectPhase
+    data class Failed(val message: String) : ModelSelectPhase
 }
 
 sealed interface TestState {
@@ -216,11 +227,21 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
                     _state.update {
                         // The bridge says the analysis finished (or
                         // never started): our "queued" note has done its
-                        // job — the result is in the history now.
-                        val growState =
-                            if (cannaai != null && cannaai.analyze?.pending != true &&
-                                it.grow.analyzePhase == AnalyzePhase.Queued
-                            ) GrowUiState() else it.grow
+                        // job — the result is in the history now. Same
+                        // for a settled model switch: the payload's
+                        // vision_model is the truth, the note retires.
+                        var growState = it.grow
+                        if (cannaai != null && cannaai.analyze?.pending != true &&
+                            growState.analyzePhase == AnalyzePhase.Queued
+                        ) {
+                            growState = growState.copy(analyzePhase = AnalyzePhase.Idle)
+                        }
+                        if (cannaai != null &&
+                            growState.modelPhase != ModelSelectPhase.Idle &&
+                            growState.modelPhase != ModelSelectPhase.Setting
+                        ) {
+                            growState = growState.copy(modelPhase = ModelSelectPhase.Idle)
+                        }
                         it.copy(
                             mining = mining ?: it.mining,
                             windows = windows ?: it.windows,
@@ -395,7 +416,7 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
                 it
             } else {
                 claimed = true
-                it.copy(grow = GrowUiState(AnalyzePhase.Sending))
+                it.copy(grow = it.grow.copy(analyzePhase = AnalyzePhase.Sending))
             }
         }
         if (!claimed) return
@@ -411,8 +432,8 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
                 if (gen == urlGeneration) {
                     _state.update {
                         it.copy(
-                            grow = GrowUiState(
-                                when {
+                            grow = it.grow.copy(
+                                analyzePhase = when {
                                     result.accepted -> AnalyzePhase.Queued
                                     result.alreadyPending -> AnalyzePhase.AlreadyRunning
                                     else -> AnalyzePhase.Failed(
@@ -425,13 +446,69 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
                 }
             } catch (e: CancellationException) {
                 if (gen == urlGeneration) {
-                    _state.update { it.copy(grow = GrowUiState()) }
+                    _state.update { it.copy(grow = it.grow.copy(analyzePhase = AnalyzePhase.Idle)) }
                 }
                 throw e
             } catch (e: Exception) {
                 if (gen == urlGeneration) {
                     _state.update {
-                        it.copy(grow = GrowUiState(AnalyzePhase.Failed(friendlyError(e))))
+                        it.copy(grow = it.grow.copy(analyzePhase = AnalyzePhase.Failed(friendlyError(e))))
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Switch the vision model CannaAI analyzes plant photos with
+     * (POST /api/cannaai/vision-model; bridge 1.14+). The bridge
+     * rewrites CannaAI's persisted selection and restarts it, so the
+     * switch lands as the payload's vision_model on a later poll —
+     * which is also what retires the transient note set here. One
+     * switch at a time, claimed synchronously like performAction.
+     */
+    fun setVisionModel(model: String) {
+        var claimed = false
+        _state.update {
+            if (it.grow.modelPhase == ModelSelectPhase.Setting) {
+                it
+            } else {
+                claimed = true
+                it.copy(grow = it.grow.copy(modelPhase = ModelSelectPhase.Setting))
+            }
+        }
+        if (!claimed) return
+        val url = _state.value.bridgeUrl
+        val gen = urlGeneration
+        viewModelScope.launch {
+            try {
+                val result = repo.postVisionModel(url, model)
+                if (gen == urlGeneration) {
+                    _state.update {
+                        it.copy(
+                            grow = it.grow.copy(
+                                modelPhase = when {
+                                    result.ok -> ModelSelectPhase.SetOk(result.model ?: model)
+                                    result.conflict -> ModelSelectPhase.Failed(
+                                        "An analysis is running — wait for the current analysis to finish."
+                                    )
+                                    else -> ModelSelectPhase.Failed(
+                                        result.error ?: "The bridge couldn't set the vision model."
+                                    )
+                                }
+                            )
+                        )
+                    }
+                }
+            } catch (e: CancellationException) {
+                if (gen == urlGeneration) {
+                    _state.update { it.copy(grow = it.grow.copy(modelPhase = ModelSelectPhase.Idle)) }
+                }
+                throw e
+            } catch (e: Exception) {
+                if (gen == urlGeneration) {
+                    _state.update {
+                        it.copy(grow = it.grow.copy(modelPhase = ModelSelectPhase.Failed(friendlyError(e))))
                     }
                 }
             }

@@ -365,6 +365,10 @@ struct GrowView: View {
                 Text("Pick a tent photo and the bridge runs it through the vision model. Results appear at the top of the analysis history below.")
                     .font(.system(size: 13))
                     .foregroundStyle(Theme.textFaint)
+                if let models = g.visionModels, !models.isEmpty {
+                    visionModelPicker(models, current: g.visionModel,
+                                      analyzePending: pending)
+                }
                 if let pickedImage {
                     Image(uiImage: pickedImage)
                         .resizable()
@@ -421,6 +425,84 @@ struct GrowView: View {
                 }
             }
         }
+    }
+
+    /// The vision-model picker (bridge 1.14+): which model CannaAI
+    /// runs photos through — chosen by hand since CannaAI's own
+    /// auto-pick lands on a build that crashes its inference server.
+    /// A menu rather than a wheel: the list is short and every row
+    /// needs room for size / loaded / ⚠ decorations. Hidden by the
+    /// caller when the bridge sends no list.
+    private func visionModelPicker(_ models: [VisionModel], current: String?,
+                                   analyzePending: Bool) -> some View {
+        let selected = models.first { $0.id == current }
+        let busy = analyzePending || vm.visionModelSubmitting
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 10) {
+                Text("Vision model")
+                    .font(.system(size: 15))
+                    .foregroundStyle(Theme.textDim)
+                Spacer(minLength: 0)
+                Menu {
+                    ForEach(Array(models.enumerated()), id: \.offset) { _, m in
+                        Button {
+                            Task { await vm.setVisionModel(m.id) }
+                        } label: {
+                            Label(visionModelLabel(m),
+                                  systemImage: m.id == current ? "checkmark" : "cpu")
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Text(current.map(shortModelName) ?? "Auto (CannaAI picks)")
+                            .lineLimit(1)
+                        if vm.visionModelSubmitting {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Image(systemName: "chevron.up.chevron.down")
+                                .font(.system(size: 11, weight: .semibold))
+                        }
+                    }
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(Theme.mist)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .background(Theme.cardAlt, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                }
+                .disabled(busy)
+            }
+            if let issue = selected?.knownIssue {
+                Text("⚠ \(issue)")
+                    .font(.system(size: 13))
+                    .foregroundStyle(Theme.warn)
+            }
+            if let outcome = vm.visionModelOutcome {
+                Text(outcome.message)
+                    .font(.system(size: 13))
+                    .foregroundStyle(outcome.ok ? Theme.good : Theme.bad)
+            }
+        }
+    }
+
+    /// "ornith-1.5-9b · 10.7 GB · loaded ⚠" — a menu row: short name,
+    /// size when the bridge knows it, the loaded marker, and the
+    /// warning flag when the build has a known issue.
+    private func visionModelLabel(_ m: VisionModel) -> String {
+        var parts = [shortModelName(m.id)]
+        if let size = m.sizeGb, size.isFinite {
+            parts.append(String(format: "%.1f GB", size))
+        }
+        if m.loaded { parts.append("loaded") }
+        var label = parts.joined(separator: " · ")
+        if m.knownIssue != nil { label += " ⚠" }
+        return label
+    }
+
+    /// "some-publisher/ornith-1.5-9b" reads as "ornith-1.5-9b" —
+    /// the publisher prefix is noise on a phone screen.
+    private func shortModelName(_ id: String) -> String {
+        id.split(separator: "/").last.map(String.init) ?? id
     }
 
     /// Load the picked photo and downscale it immediately, so the

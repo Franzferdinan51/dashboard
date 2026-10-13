@@ -202,6 +202,57 @@ final class BridgeClient {
         }
     }
 
+    // MARK: - Vision model selection
+
+    /// The bridge's reply to a vision-model change: 200 set, 409 an
+    /// analysis is running, 400 unknown model — each with the
+    /// bridge's words, plus the model it reports back.
+    struct VisionModelAck {
+        let ok: Bool
+        let model: String?
+        let message: String
+    }
+
+    /// POST /api/cannaai/vision-model {model} (bridge 1.14+). Same
+    /// body-parsing rule as postAnalyze: the reply is parsed on ANY
+    /// status, because the 4xx bodies carry a JSON {"error": ...}
+    /// whose words belong on screen. Applying the change restarts
+    /// CannaAI on the bridge side, so this rides the long-timeout
+    /// action session like the other writes.
+    func postVisionModel(_ model: String) async throws -> VisionModelAck {
+        guard let url = URL(string: baseURLString + "/api/cannaai/vision-model") else {
+            throw BridgeError.badURL
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["model": model])
+
+        let (data, response) = try await actionSession.data(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+        var serverMessage: String?
+        var serverModel: String?
+        if let object = try? JSONSerialization.jsonObject(with: data),
+           let dict = object as? [String: Any] {
+            serverMessage = (dict["error"] as? String) ?? (dict["message"] as? String)
+            serverModel = dict["model"] as? String
+        }
+        switch status {
+        case 409:
+            return VisionModelAck(ok: false, model: serverModel, message: serverMessage
+                ?? "Wait for the current analysis to finish before switching models.")
+        case 400:
+            return VisionModelAck(ok: false, model: serverModel, message: serverMessage
+                ?? "The bridge rejected that model.")
+        case 200...299:
+            return VisionModelAck(ok: true, model: serverModel ?? model, message: serverMessage
+                ?? "Vision model set to \(model).")
+        default:
+            if status == -1 { throw BridgeError.unexpectedResponse }
+            throw BridgeError.http(status)
+        }
+    }
+
     // MARK: - Plumbing
 
     private func get<T: Decodable>(_ type: T.Type, path: String) async throws -> T {

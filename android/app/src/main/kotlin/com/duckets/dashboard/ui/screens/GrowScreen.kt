@@ -30,10 +30,15 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -72,6 +77,8 @@ import com.duckets.dashboard.ui.fmtRelativeTime
 import com.duckets.dashboard.vm.AnalyzePhase
 import com.duckets.dashboard.vm.DashboardUiState
 import com.duckets.dashboard.vm.DashboardViewModel
+import com.duckets.dashboard.vm.GrowUiState
+import com.duckets.dashboard.vm.ModelSelectPhase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.Locale
@@ -122,7 +129,7 @@ fun GrowScreen(state: DashboardUiState, vm: DashboardViewModel, columns: Int = 1
                     }
                     item { GrowStatusCard(g) }
                     item { GrowAlertsCard(g) }
-                    item { GrowAnalyzeCard(g, state.grow.analyzePhase, vm) }
+                    item { GrowAnalyzeCard(g, state.grow, vm) }
                     item { GrowHistoryCard(g) }
                 }
                 item { Spacer(Modifier.height(8.dp)) }
@@ -435,8 +442,136 @@ private suspend fun decodePhotoPreview(context: Context, uri: Uri): Bitmap? =
         }.getOrNull()
     }
 
+/** The short tail of a model id for display ("publisher/model" →
+ * "model"); the full id stays the value everywhere it matters. */
+private fun visionModelShort(id: String): String = id.substringAfterLast("/")
+
+/** "10.7 GB" — a vision model's size, for the selector and its menu. */
+private fun fmtModelSize(sizeGb: Double?): String? =
+    sizeGb?.takeIf { it.isFinite() && it > 0 }
+        ?.let { String.format(Locale.US, "%.1f GB", it) }
+
+/**
+ * The vision-model dropdown (bridge 1.14+): which LM Studio model
+ * CannaAI sends plant photos to. The list, sizes, loaded flags, and
+ * known-issue warnings all come from the bridge; picking a model
+ * POSTs the switch and the payload's vision_model becomes the
+ * displayed truth on the next poll. A flagged model stays
+ * selectable — it's the user's call — but its warning renders in
+ * the menu and, while it is the selection, under the selector.
+ * Renders nothing when the bridge offers no models (older bridge,
+ * LM Studio down).
+ */
 @Composable
-private fun GrowAnalyzeCard(g: CannaAiData, phase: AnalyzePhase, vm: DashboardViewModel) {
+private fun VisionModelSelector(
+    g: CannaAiData,
+    modelPhase: ModelSelectPhase,
+    enabled: Boolean,
+    vm: DashboardViewModel,
+) {
+    if (g.visionModels.isEmpty()) return
+    var expanded by remember { mutableStateOf(false) }
+    val setting = modelPhase == ModelSelectPhase.Setting
+    val currentId = g.visionModel
+    val selected = g.visionModels.firstOrNull { it.id == currentId }
+    Text("Vision model", style = MaterialTheme.typography.labelLarge, color = Muse.TextDim)
+    Spacer(Modifier.height(6.dp))
+    Box {
+        OutlinedButton(
+            onClick = { expanded = true },
+            enabled = enabled && !setting,
+            shape = Muse.CardShape,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    when {
+                        currentId == null -> "Auto (CannaAI picks)"
+                        selected != null -> visionModelShort(selected.id)
+                        else -> visionModelShort(currentId)
+                    },
+                    color = Muse.Mist, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                if (selected?.loaded == true) {
+                    Text("LOADED", style = MaterialTheme.typography.labelSmall, color = Muse.Sky)
+                    Spacer(Modifier.width(6.dp))
+                }
+                Icon(Icons.Filled.ArrowDropDown, contentDescription = null, tint = Muse.TextDim)
+            }
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            g.visionModels.forEach { m ->
+                DropdownMenuItem(
+                    text = {
+                        Column {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    visionModelShort(m.id),
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = if (m.id == currentId) Muse.Sky else Muse.Mist,
+                                )
+                                if (m.loaded) {
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("LOADED",
+                                        style = MaterialTheme.typography.labelSmall, color = Muse.Sky)
+                                }
+                            }
+                            val meta = listOfNotNull(
+                                fmtModelSize(m.sizeGb),
+                                if (m.id == currentId) "current selection" else null,
+                            ).joinToString(" · ")
+                            if (meta.isNotEmpty()) {
+                                Text(meta,
+                                    style = MaterialTheme.typography.bodySmall, color = Muse.TextDim)
+                            }
+                            if (m.knownIssue != null) {
+                                Text("⚠ ${m.knownIssue}",
+                                    style = MaterialTheme.typography.bodySmall, color = Muse.Warn)
+                            }
+                        }
+                    },
+                    onClick = {
+                        expanded = false
+                        if (m.id != currentId) vm.setVisionModel(m.id)
+                    },
+                )
+            }
+        }
+    }
+    if (selected?.knownIssue != null) {
+        Spacer(Modifier.height(8.dp))
+        Text("⚠ ${selected.knownIssue}",
+            style = MaterialTheme.typography.bodyMedium, color = Muse.Warn)
+    }
+    when (modelPhase) {
+        ModelSelectPhase.Setting -> {
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(Modifier.size(14.dp), color = Muse.Sky, strokeWidth = 2.dp)
+                Spacer(Modifier.width(8.dp))
+                Text("Setting the vision model…",
+                    style = MaterialTheme.typography.bodyMedium, color = Muse.TextDim)
+            }
+        }
+        is ModelSelectPhase.SetOk -> {
+            Spacer(Modifier.height(8.dp))
+            Text("Vision model set to ${visionModelShort(modelPhase.model)} — CannaAI restarted",
+                style = MaterialTheme.typography.bodyMedium, color = Muse.Good)
+        }
+        is ModelSelectPhase.Failed -> {
+            Spacer(Modifier.height(8.dp))
+            Text(modelPhase.message,
+                style = MaterialTheme.typography.bodyMedium, color = Muse.Bad)
+        }
+        ModelSelectPhase.Idle -> {}
+    }
+    Spacer(Modifier.height(14.dp))
+}
+
+@Composable
+private fun GrowAnalyzeCard(g: CannaAiData, growState: GrowUiState, vm: DashboardViewModel) {
+    val phase = growState.analyzePhase
     val context = LocalContext.current
     var pickedUri by remember { mutableStateOf<Uri?>(null) }
     var thumbnail by remember { mutableStateOf<Bitmap?>(null) }
@@ -453,6 +588,7 @@ private fun GrowAnalyzeCard(g: CannaAiData, phase: AnalyzePhase, vm: DashboardVi
         Column(Modifier.padding(20.dp)) {
             CardHeader("Analyze a plant photo", subtitle = "CannaAI vision · LM Studio")
             Spacer(Modifier.height(12.dp))
+            VisionModelSelector(g, growState.modelPhase, enabled = !pending && !sending, vm = vm)
             val thumb = thumbnail
             if (thumb != null) {
                 Image(

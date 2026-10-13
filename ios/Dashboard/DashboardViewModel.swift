@@ -46,6 +46,12 @@ final class DashboardViewModel: ObservableObject {
     /// already-running / rejected), shown in the Grow tab until the
     /// next upload replaces it.
     @Published var analyzeOutcome: ActionOutcome?
+    /// A vision-model change is on its way to the bridge (the POST
+    /// plus the CannaAI restart it triggers — not instant).
+    @Published var visionModelSubmitting: Bool = false
+    /// The bridge's verdict on the last vision-model change, shown
+    /// under the Grow tab's model picker until the next change.
+    @Published var visionModelOutcome: ActionOutcome?
     /// Persisted in UserDefaults key "bridge_url".
     @Published var bridgeURLString: String
     /// Poll cadence in seconds, persisted in UserDefaults key
@@ -261,6 +267,35 @@ final class DashboardViewModel: ObservableObject {
         }
     }
 
+    // MARK: - Vision model selection
+
+    /// Set which vision model CannaAI analyzes photos with (bridge
+    /// 1.14+). One at a time, like every other write here; applying
+    /// the change restarts CannaAI on the bridge side. The picker's
+    /// current value is payload state, not local state — after the
+    /// POST, a refresh pulls vision_model back so the menu shows
+    /// what the bridge actually applied.
+    func setVisionModel(_ model: String) async {
+        guard !visionModelSubmitting else { return }
+        visionModelSubmitting = true
+        visionModelOutcome = nil
+        let gen = urlGeneration
+        do {
+            let ack = try await client.postVisionModel(model)
+            if gen == urlGeneration {
+                visionModelOutcome = ActionOutcome(ok: ack.ok, message: ack.message)
+            }
+        } catch {
+            if gen == urlGeneration {
+                visionModelOutcome = ActionOutcome(ok: false, message: Self.friendlyError(error))
+            }
+        }
+        if gen == urlGeneration {
+            visionModelSubmitting = false
+            await refresh()
+        }
+    }
+
     // MARK: - Settings
 
     func setBridgeURL(_ s: String) {
@@ -288,6 +323,8 @@ final class DashboardViewModel: ObservableObject {
         actionResults = [:]
         analyzeSubmitting = false
         analyzeOutcome = nil
+        visionModelSubmitting = false
+        visionModelOutcome = nil
         stop()
         start()
         Task { await refresh() }
