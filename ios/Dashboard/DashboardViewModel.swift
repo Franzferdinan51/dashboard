@@ -65,6 +65,10 @@ final class DashboardViewModel: ObservableObject {
 
     private let client: BridgeClient
     private var pollTask: Task<Void, Never>?
+    /// The analyze watcher: while a photo analysis runs on the
+    /// bridge, polls CannaAI on its own fast cadence (see
+    /// startAnalyzeWatcher). At most one runs at a time.
+    private var analyzeWatchTask: Task<Void, Never>?
     private var consecutiveFailures = 0
     /// Bumped on every bridge-URL change. Fetches and actions capture it
     /// at launch and refuse to write state if it has moved on — an
@@ -112,6 +116,8 @@ final class DashboardViewModel: ObservableObject {
     func stop() {
         pollTask?.cancel()
         pollTask = nil
+        analyzeWatchTask?.cancel()
+        analyzeWatchTask = nil
     }
 
     // MARK: - Refresh
@@ -165,7 +171,7 @@ final class DashboardViewModel: ObservableObject {
                 if let newMining { mining = newMining.mining }
                 if let newWindows { windows = newWindows.windows }
                 if let newDecisions { decisions = newDecisions.decisions }
-                if let newCannaai { cannaai = newCannaai }
+                if let newCannaai { applyCannaai(newCannaai) }
                 if let newSystemone { systemone = newSystemone }
                 // Stamp the cadence ONLY when the core pair landed.
                 // The old code stamped before fetching and swallowed
@@ -205,6 +211,94 @@ final class DashboardViewModel: ObservableObject {
         }
     }
 
+    // MARK: - Analyze watcher
+
+    /// Apply a fetched CannaAI payload. Fetched payloads land here
+    /// (rather than assigning `cannaai` directly) so the analyze
+    /// watcher can piggyback: any payload showing a running analysis
+    /// starts it — the app may have opened mid-analysis, with nobody
+    /// having submitted from this device.
+    private func applyCannaai(_ data: CannaaiData) {
+        cannaai = data
+        if data.analyze?.pending == true {
+            startAnalyzeWatcher()
+        }
+    }
+
+    /// While a photo analysis runs on the bridge, poll CannaAI
+    /// directly every ~5 s — bypassing the 25 s side cadence — so
+    /// the finished result appears in the history the moment it's
+    /// ready instead of whenever the cadence next happens to fire.
+    /// One at a time; starting is idempotent.
+    ///
+    /// Stop conditions (a watcher that never stops is a battery bug):
+    /// - the analysis finished AND its history entry has landed —
+    ///   the head entry postdates the watch start, or the head /
+    ///   entry count simply changed since the watch began;
+    /// - the analysis finished with nothing landed (it failed on
+    ///   the bridge side; its lastError is already on screen) —
+    ///   but only after a ~15 s grace of extra polls, so a first
+    ///   non-pending payload that beat the result by a hair doesn't
+    ///   end the watch early;
+    /// - ~5 minutes elapsed, whatever the bridge claims;
+    /// - the bridge URL changed or stop() was called.
+    private func startAnalyzeWatcher() {
+        guard analyzeWatchTask == nil else { return }
+        let gen = urlGeneration
+        let startedAt = Date()
+        let baselineCount = cannaai?.history?.count ?? 0
+        let baselineHead = Self.historyHeadSignature(cannaai)
+        analyzeWatchTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                guard let self, !Task.isCancelled, gen == self.urlGeneration else { return }
+                guard let fresh = try? await self.client.fetchCannaai() else { continue }
+                guard !Task.isCancelled, gen == self.urlGeneration else { return }
+                self.applyCannaai(fresh)
+                let elapsed = Date().timeIntervalSince(startedAt)
+                let pending = fresh.analyze?.pending ?? false
+                if !pending {
+                    // The bridge flips pending off and invalidates
+                    // its cannaai cache together, so a non-pending
+                    // payload should already carry the result.
+                    let headDate = Self.flexibleDate(fresh.history?.first?.at)
+                    let landed = (headDate.map { $0 > startedAt } ?? false)
+                        || (fresh.history?.count ?? 0) != baselineCount
+                        || Self.historyHeadSignature(fresh) != baselineHead
+                    if landed || elapsed > 15 {
+                        self.analyzeWatchTask = nil
+                        return
+                    }
+                }
+                if elapsed > 300 {
+                    self.analyzeWatchTask = nil
+                    return
+                }
+            }
+        }
+    }
+
+    /// A cheap identity for the newest history entry, so the watcher
+    /// can tell "the head changed" without diffing whole arrays.
+    private static func historyHeadSignature(_ data: CannaaiData?) -> String? {
+        guard let head = data?.history?.first else { return nil }
+        let epoch = head.at?.epochSec.map { String($0) } ?? ""
+        return [head.text ?? "", head.strain ?? "", epoch, head.at?.raw ?? ""]
+            .joined(separator: "|")
+    }
+
+    /// FlexibleTime → Date, mirroring GrowView's display helper.
+    private static func flexibleDate(_ t: FlexibleTime?) -> Date? {
+        guard let t else { return nil }
+        if let epoch = t.epochSec { return Date(timeIntervalSince1970: epoch) }
+        guard let raw = t.raw else { return nil }
+        let parser = ISO8601DateFormatter()
+        parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = parser.date(from: raw) { return date }
+        parser.formatOptions = [.withInternetDateTime]
+        return parser.date(from: raw)
+    }
+
     // MARK: - Actions
 
     /// Fire one bridge action (already user-confirmed in the UI). One at
@@ -240,8 +334,11 @@ final class DashboardViewModel: ObservableObject {
 
     /// Hand one plant photo (base64 JPEG) to the bridge for CannaAI
     /// analysis. The POST only uploads — the vision model takes
-    /// minutes, and the result arrives via the normal cannaai poll
-    /// as a new history entry, with analyze.pending true meanwhile.
+    /// minutes, and the result arrives as a new history entry, with
+    /// analyze.pending true meanwhile. The analyze watcher (started
+    /// on acceptance) polls for that entry on its own fast cadence;
+    /// the plain poll loop's 25 s side cadence alone left the
+    /// history stale until a manual refresh.
     func submitPlantPhoto(imageBase64: String, strain: String?) async {
         guard !analyzeSubmitting else { return }
         analyzeSubmitting = true
@@ -252,6 +349,13 @@ final class DashboardViewModel: ObservableObject {
                 imageBase64: imageBase64, strain: strain, notes: nil)
             if gen == urlGeneration {
                 analyzeOutcome = ActionOutcome(ok: ack.ok, message: ack.message)
+                if ack.ok {
+                    // Baseline for the watcher is the cannaai state
+                    // right now — the history as it was before this
+                    // analysis — so start it before the refresh below
+                    // pulls the pending state in.
+                    startAnalyzeWatcher()
+                }
             }
         } catch {
             if gen == urlGeneration {
@@ -263,6 +367,10 @@ final class DashboardViewModel: ObservableObject {
             // Pull the fresh cannaai state right away: a 202 flips
             // analyze.pending on the bridge, and the card should
             // show "Analyzing…" without waiting out the side cadence.
+            // Resetting lastSideFetch forces this refresh's side
+            // fetch to actually include CannaAI — a bare refresh()
+            // skips it entirely whenever the cadence isn't due.
+            lastSideFetch = .distantPast
             await refresh()
         }
     }
