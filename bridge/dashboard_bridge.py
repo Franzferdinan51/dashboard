@@ -61,7 +61,7 @@ DARKBLOOM_STATE = os.path.join(HOME, ".darkbloom", "daemon-state.json")
 DARKBLOOM_TOKEN = os.path.join(HOME, ".darkbloom", "auth_token")
 LMSTUDIO_KEY = os.path.join(HOME, ".config", "lmstudio", "api_key")
 LMSTUDIO_BASE = "http://127.0.0.1:1234"
-BRIDGE_VERSION = "1.11.3"
+BRIDGE_VERSION = "1.12.0"
 _STARTED_AT = time.time()
 
 # --------------------------------------------------------------------------
@@ -1427,17 +1427,22 @@ def _cannaai_alerts():
     return out
 
 
-def _cannaai_journal_latest():
+def _cannaai_history_rows():
     # CannaAI has no /api/journal (the original code probed a nonexistent
     # endpoint, so this was null forever). The grow journal is the
     # PlantAnalysis history: GET /api/history -> {success, history:[...]}
     # ordered newest first; an entry's headline is its diagnosis.
+    # One fetch serves both journal_latest and the history list.
     try:
         payload = http_get_json(CANNAI_BASE + "/api/history", timeout=5)
     except Exception:
-        return None
+        return []
     rows = payload.get("history") if isinstance(payload, dict) else payload
-    if not isinstance(rows, list) or not rows or not isinstance(rows[0], dict):
+    return rows if isinstance(rows, list) else []
+
+
+def _cannaai_journal_latest(rows):
+    if not rows or not isinstance(rows[0], dict):
         return None
     e = rows[0]
     text = e.get("diagnosis") or e.get("notes") or e.get("text") \
@@ -1448,19 +1453,52 @@ def _cannaai_journal_latest():
             "at": e.get("createdAt") or e.get("date") or e.get("timestamp")}
 
 
-def _cannaai_providers_up():
+def _cannaai_num_or_none(v):
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return None
+    return v
+
+
+def _cannaai_history(rows):
+    out = []
+    for e in rows:
+        if not isinstance(e, dict):
+            continue
+        text = e.get("diagnosis") or e.get("notes") or e.get("text") \
+            or e.get("title")
+        out.append({"text": str(text)[:200] if text else None,
+                    "strain": e.get("strain"),
+                    "confidence": _cannaai_num_or_none(e.get("confidence")),
+                    "health_score": _cannaai_num_or_none(
+                        e.get("healthScore")),
+                    "notes": e.get("notes"),
+                    "at": e.get("createdAt") or e.get("date")
+                    or e.get("timestamp")})
+        if len(out) >= 20:
+            break
+    return out
+
+
+def _cannaai_provider_rows():
+    # One fetch serves both providers_up and the providers list.
+    # Live shape: {"providers": [{"id": "lmstudio", "name": "lmstudio",
+    # "status": "available", ...}]} — tolerate list payloads and the
+    # other wrapper keys older code probed for.
     try:
-        payload = http_get_json(CANNAI_BASE + "/api/ai/providers", timeout=5)
+        payload = http_get_json(CANNAI_BASE + "/api/ai/providers",
+                                timeout=5)
     except Exception:
         return None
-    rows = None
     if isinstance(payload, list):
-        rows = payload
-    elif isinstance(payload, dict):
+        return payload
+    if isinstance(payload, dict):
         for key in ("data", "providers", "items"):
             if isinstance(payload.get(key), list):
-                rows = payload[key]
-                break
+                return payload[key]
+    return None
+
+
+def _cannaai_providers_up(rows):
     if rows is None:
         return None
     up = 0
@@ -1473,6 +1511,18 @@ def _cannaai_providers_up():
     return up
 
 
+def _cannaai_providers(rows):
+    if rows is None:
+        return []
+    out = []
+    for p in rows:
+        if not isinstance(p, dict):
+            continue
+        out.append({"name": p.get("name") or p.get("id"),
+                    "status": p.get("status")})
+    return out
+
+
 def cannaai_stats():
     def fetch():
         try:
@@ -1480,12 +1530,16 @@ def cannaai_stats():
                                    timeout=5)
         except Exception:
             return {"reachable": False}
+        hist_rows = _cannaai_history_rows()
+        prov_rows = _cannaai_provider_rows()
         return {"reachable": True,
                 "status": _cannaai_status_summary(health),
                 "sensors": _cannaai_sensors(),
                 "alerts": _cannaai_alerts(),
-                "journal_latest": _cannaai_journal_latest(),
-                "providers_up": _cannaai_providers_up()}
+                "journal_latest": _cannaai_journal_latest(hist_rows),
+                "history": _cannaai_history(hist_rows),
+                "providers": _cannaai_providers(prov_rows),
+                "providers_up": _cannaai_providers_up(prov_rows)}
     return cached("cannaai", 30, fetch, swr=True)
 
 
