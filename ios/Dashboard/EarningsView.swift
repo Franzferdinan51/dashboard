@@ -166,7 +166,7 @@ struct EarningsView: View {
                     KVRow("Withdrawable", fmtUsd(e.withdrawableUsd))
                     KVRow("Lifetime total", fmtUsd(e.totalUsd))
                     KVRow("Paid jobs (recent history)", earnCount(e.jobsInHistory.map { Int64($0) }))
-                    KVRow("Base rewards (recent)", fmtUsd(microToUsd(e.baseRewardsMicroRecent)))
+                    KVRow("Base rewards (recent)", microToUsd(e.baseRewardsMicroRecent))
                 } else {
                     Text("—")
                         .font(.system(size: 32, weight: .bold))
@@ -237,7 +237,8 @@ struct EarningsView: View {
                             .foregroundStyle(Theme.textFaint)
                     }
                     Spacer(minLength: 0)
-                    StatusChip(text: "LIVE", color: Theme.good)
+                    StatusChip(text: vm.connected ? "LIVE" : "OFFLINE",
+                               color: vm.connected ? Theme.good : Theme.bad)
                 }
                 HStack(alignment: .top, spacing: 12) {
                     estBox("PER DAY", est.perDayUsd)
@@ -254,6 +255,15 @@ struct EarningsView: View {
                 if est.basePerDayUsd != nil || est.jobsPerDayUsd != nil {
                     KVRow("Base floor (per day)", fmtUsd(est.basePerDayUsd))
                     KVRow("Paid jobs (per day)", fmtUsd(est.jobsPerDayUsd))
+                }
+                if est.compLastHourUsd != nil || est.compLast6hUsd != nil
+                    || est.compLast24hUsd != nil || est.compLast7dUsd != nil {
+                    SectionHeader("Realized rate by window")
+                        .padding(.top, 2)
+                    KVRow("Last hour", est.compLastHourUsd != nil ? "\(fmtUsd(est.compLastHourUsd))/day" : "—")
+                    KVRow("Last 6 hours", est.compLast6hUsd != nil ? "\(fmtUsd(est.compLast6hUsd))/day" : "—")
+                    KVRow("Last 24 hours", est.compLast24hUsd != nil ? "\(fmtUsd(est.compLast24hUsd))/day" : "—")
+                    KVRow("Last 7 days", est.compLast7dUsd != nil ? "\(fmtUsd(est.compLast7dUsd))/day" : "—")
                 }
                 if let online = est.onlineFraction {
                     KVRow("Provider online", "\(Int(online * 100))% of tracked time")

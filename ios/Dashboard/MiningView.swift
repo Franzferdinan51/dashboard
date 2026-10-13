@@ -110,6 +110,12 @@ struct MiningView: View {
                           String(format: "%.1f EH/s · %@/TH/day · fee %@%%",
                                  (ver.nethashThs ?? 0) / 1e6, usd4(ver.usdPerThDay), dstr(ver.poolFeePct)))
                     KVRow("Kryptex claims (snapshot)", kryptexText(ver))
+                    if let profit = vm.mining?.profit {
+                        KVRow("Power",
+                              "−\(fmtUsd(profit.powerCostDay))/day · \(dstr(profit.powerW)) W · \(dstr(profit.kwhPerDay)) kWh/day")
+                        KVRow("Net after power",
+                              "\(fmtUsd(profit.netDay))/day (at \(fmtKwhRate(profit.rateUsdKwh))/kWh)")
+                    }
                     Text("Computed from the miner's own log (sustained average hashrate) × live Pearl network emission (WhatToMine) × live PRL price (CoinGecko), less Kryptex's 3% pool fee. Kryptex's dashboard figures are not an input.")
                         .font(.caption)
                         .foregroundStyle(cFaint)

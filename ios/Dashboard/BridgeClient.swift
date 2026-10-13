@@ -75,6 +75,51 @@ final class BridgeClient {
         return try decoder.decode(ActionsResponse.self, from: data)
     }
 
+    func fetchDecisions(limit: Int = 40) async throws -> DecisionsResponse {
+        try await get(DecisionsResponse.self, path: "/api/decisions?limit=\(limit)")
+    }
+
+    /// The grow + engine proxies exist on bridge 1.11+; on an older
+    /// bridge these 404 and the caller just keeps its last state.
+    /// The payload may be wrapped ({"cannaai": {...}}) or bare —
+    /// try the wrapper first, fall back to the bare object.
+    func fetchCannaai() async throws -> CannaaiData {
+        let data = try await fetchData(path: "/api/cannaai")
+        if let wrapped = try? decoder.decode(CannaaiResponse.self, from: data),
+           let inner = wrapped.cannaai {
+            return inner
+        }
+        return try decoder.decode(CannaaiData.self, from: data)
+    }
+
+    func fetchSystemone() async throws -> SystemOneData {
+        let data = try await fetchData(path: "/api/systemone")
+        if let wrapped = try? decoder.decode(SystemoneResponse.self, from: data),
+           let inner = wrapped.systemone {
+            return inner
+        }
+        return try decoder.decode(SystemOneData.self, from: data)
+    }
+
+    /// GET /api/health against an ARBITRARY base URL (the Settings
+    /// "Test" button probes the draft address, not the saved one).
+    /// Returns the health body and the round-trip latency.
+    func fetchHealth(baseURLString rawBase: String) async throws -> (health: BridgeHealth, latencyMs: Int) {
+        let base = normalizeBridgeURL(rawBase)
+        guard let url = URL(string: base + "/api/health") else {
+            throw BridgeError.badURL
+        }
+        let started = Date()
+        let (data, response) = try await session.data(from: url)
+        let latencyMs = Int(Date().timeIntervalSince(started) * 1000)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+        guard status == 200 else { throw BridgeError.http(status) }
+        guard !data.isEmpty else { throw BridgeError.emptyBody }
+        let health = try decoder.decode(BridgeHealth.self, from: data)
+        guard health.ok else { throw BridgeError.unexpectedResponse }
+        return (health, latencyMs)
+    }
+
     // MARK: - Actions
 
     /// POST /api/action. Deliberately parses the body on ANY HTTP status:

@@ -90,7 +90,9 @@ struct KVRow: View {
                 .fontWeight(.semibold)
                 .foregroundStyle(Theme.mist)
                 .multilineTextAlignment(.trailing)
-                .lineLimit(1)
+                // Values wrap to 2 lines: long ones (a full CPU model
+                // name, a rate line) clipped hard at 1 line.
+                .lineLimit(2)
         }
         .font(.system(size: 15))
         .padding(.vertical, 3)

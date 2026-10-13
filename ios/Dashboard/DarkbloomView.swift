@@ -164,6 +164,7 @@ struct DarkbloomView: View {
                 KVRow("Trust level", db.trustLevel ?? "—")
                 KVRow("Reason", db.trustReason ?? "—")
                 KVRow("Path", db.trustPath ?? "—")
+                KVRow("Session expires", sessionExpiryText(db.trustSessionExpiresAt))
                 KVRow("App Attest", attestText(db.attestAttested))
                 KVRow("Attest key age", fmtDuration(db.attestKeyAgeSeconds.map { Double($0) }))
                 KVRow("Last Apple success",
@@ -175,6 +176,16 @@ struct DarkbloomView: View {
                 }
             }
         }
+    }
+
+    /// trust.session_expires_at is epoch seconds on the wire:
+    /// "in 5h 12m" while valid, "expired" once past (the session
+    /// silently stops earning then — surface it before it bites).
+    private func sessionExpiryText(_ epochSec: Double?) -> String {
+        guard let epochSec, epochSec.isFinite, epochSec > 0 else { return "—" }
+        let remaining = epochSec - Date().timeIntervalSince1970
+        if remaining <= 0 { return "expired" }
+        return "in " + fmtDuration(remaining)
     }
 
     private func attestText(_ v: Bool?) -> String {
@@ -334,7 +345,8 @@ struct DarkbloomView: View {
                         .font(.caption)
                         .foregroundStyle(Theme.textDim)
                     Spacer()
-                    StatusChip(text: "LIVE", color: Theme.good)
+                    StatusChip(text: vm.connected ? "LIVE" : "OFFLINE",
+                               color: vm.connected ? Theme.good : Theme.bad)
                 }
                 HStack(alignment: .top, spacing: 12) {
                     EstBox(label: "PER DAY", value: est.perDayUsd)

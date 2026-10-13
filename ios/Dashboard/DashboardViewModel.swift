@@ -9,15 +9,31 @@ struct ActionOutcome {
     let message: String
 }
 
+/// The Settings "Test" probe's state (Android's TestState): idle until
+/// the user tests a draft URL, then a verdict with latency + bridge
+/// version, or the friendly failure.
+enum BridgeTestState {
+    case idle
+    case testing
+    case ok(latencyMs: Int, version: String?)
+    case failed(String)
+}
+
 @MainActor
 final class DashboardViewModel: ObservableObject {
     @Published var overview: OverviewResponse?
     @Published var mining: MiningData?
     @Published var windows: WindowsData?
     @Published var actions: ActionsResponse?
+    @Published var decisions: [DecisionEvent] = []
+    @Published var cannaai: CannaaiData?
+    @Published var systemone: SystemOneData?
     @Published var connected: Bool = false
     @Published var lastError: String?
     @Published var isRefreshing: Bool = false
+    /// When the last successful overview sample landed (this device's
+    /// clock) — the Overview status line's "updated Xs ago".
+    @Published var lastUpdatedAt: Date?
     /// The action string currently running, nil when idle. Actions run
     /// one at a time, app-wide.
     @Published var actionInFlight: String?
@@ -25,6 +41,14 @@ final class DashboardViewModel: ObservableObject {
     @Published var actionResults: [String: ActionOutcome] = [:]
     /// Persisted in UserDefaults key "bridge_url".
     @Published var bridgeURLString: String
+    /// Poll cadence in seconds, persisted in UserDefaults key
+    /// "refresh_seconds" (default 5, range 3...30 — Android parity).
+    @Published var refreshSeconds: Int
+    @Published var testState: BridgeTestState = .idle
+    /// Set by ActionsView while its tab is on screen: the side-fetch
+    /// cycle then also refreshes action state, so JIT auto-unloads
+    /// (600 s TTL) don't leave the Load/Unload buttons stale.
+    var actionsTabVisible = false
 
     private let client: BridgeClient
     private var pollTask: Task<Void, Never>?
@@ -35,28 +59,38 @@ final class DashboardViewModel: ObservableObject {
     /// one's screen.
     private var urlGeneration = 0
     private var lastSideFetch: Date = .distantPast
+    /// A refresh requested while one was in flight: honored with one
+    /// trailing fetch instead of being dropped (Android's pendingRefresh).
+    private var pendingRefresh = false
+    /// Manual-refresh callers parked until the trailing fetch lands —
+    /// pull-to-refresh must not dismiss its spinner on a fetch it
+    /// didn't cause.
+    private var refreshWaiters: [CheckedContinuation<Void, Never>] = []
 
     init() {
         let saved = UserDefaults.standard.string(forKey: "bridge_url")
         let initial = saved ?? "http://100.68.208.113:8901"
         bridgeURLString = initial
+        let savedSeconds = UserDefaults.standard.object(forKey: "refresh_seconds") as? Int
+        refreshSeconds = min(max(savedSeconds ?? 5, 3), 30)
         client = BridgeClient(baseURLString: initial)
     }
 
     // MARK: - Poll loop
 
-    /// Starts the 5 s poll loop. Idempotent.
+    /// Starts the poll loop (interval = refreshSeconds). Idempotent.
     func start() {
         guard pollTask == nil else { return }
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
                 // Anchor the cadence to the START of the fetch, so the
-                // real period is 5 s rather than fetch-time + 5 s.
+                // real period is the interval rather than fetch-time +
+                // interval.
                 let cycleStart = Date()
                 await self.refresh()
                 let elapsed = Date().timeIntervalSince(cycleStart)
-                let remaining = max(0, 5 - elapsed)
+                let remaining = max(0, Double(self.refreshSeconds) - elapsed)
                 try? await Task.sleep(nanoseconds: UInt64(remaining * 1_000_000_000))
             }
         }
@@ -69,12 +103,28 @@ final class DashboardViewModel: ObservableObject {
 
     // MARK: - Refresh
 
+    /// Poll cycles and pull-to-refresh share this entry. A caller that
+    /// arrives while a fetch is in flight queues ONE trailing fetch
+    /// and (unlike the old skip) waits for it — the in-flight fetch
+    /// may have started before the user's pull, with older data.
     func refresh() async {
-        // A second caller while one is in flight just skips: the poll
-        // loop's next cycle (or the in-flight fetch itself) covers it.
-        guard !isRefreshing else { return }
+        if isRefreshing {
+            pendingRefresh = true
+            await withCheckedContinuation { refreshWaiters.append($0) }
+            return
+        }
         isRefreshing = true
-        defer { isRefreshing = false }
+        repeat {
+            pendingRefresh = false
+            await fetchOnce()
+        } while pendingRefresh && !Task.isCancelled
+        isRefreshing = false
+        let waiters = refreshWaiters
+        refreshWaiters = []
+        waiters.forEach { $0.resume() }
+    }
+
+    private func fetchOnce() async {
         let gen = urlGeneration
         do {
             let ov = try await client.fetchOverview()
@@ -83,18 +133,41 @@ final class DashboardViewModel: ObservableObject {
             overview = ov
             connected = true
             lastError = nil
+            lastUpdatedAt = Date()
 
             // Mining + Windows ride a slower cadence (~25 s): both are
             // SWR-cached on the bridge, so this mostly costs a local
             // round-trip. Their failures never touch the main state —
-            // the views just keep their last data.
-            if Date().timeIntervalSince(lastSideFetch) > 25 {
-                lastSideFetch = Date()
+            // the views just keep their last data. The decisions log,
+            // CannaAI and SystemOne proxies ride the same cadence.
+            let sideDue = Date().timeIntervalSince(lastSideFetch) > 25
+                || mining == nil || windows == nil
+            if sideDue {
                 let newMining = try? await client.fetchMining()
                 let newWindows = try? await client.fetchWindows()
+                let newDecisions = try? await client.fetchDecisions()
+                let newCannaai = try? await client.fetchCannaai()
+                let newSystemone = try? await client.fetchSystemone()
                 guard gen == urlGeneration else { return }
                 if let newMining { mining = newMining.mining }
                 if let newWindows { windows = newWindows.windows }
+                if let newDecisions { decisions = newDecisions.decisions }
+                if let newCannaai { cannaai = newCannaai }
+                if let newSystemone { systemone = newSystemone }
+                // Stamp the cadence ONLY when the core pair landed.
+                // The old code stamped before fetching and swallowed
+                // the errors, so one failed first fetch left the
+                // Mining/Windows tabs on "Waiting…" for the full 25 s;
+                // now a failure retries on the next main poll.
+                if newMining != nil && newWindows != nil {
+                    lastSideFetch = Date()
+                }
+                // While the Actions tab is on screen, its state rides
+                // this cadence too — LM Studio's JIT TTL (600 s) can
+                // unload a model under an open tab.
+                if actionsTabVisible {
+                    await refreshActions()
+                }
             }
         } catch {
             guard gen == urlGeneration else { return }
@@ -160,12 +233,17 @@ final class DashboardViewModel: ObservableObject {
         urlGeneration += 1
         consecutiveFailures = 0
         lastSideFetch = .distantPast
+        testState = .idle
         // Full reset: the old bridge's snapshot must never linger on
         // screen as if it came from the new bridge.
         overview = nil
         mining = nil
         windows = nil
         actions = nil
+        decisions = []
+        cannaai = nil
+        systemone = nil
+        lastUpdatedAt = nil
         connected = false
         lastError = nil
         actionInFlight = nil
@@ -173,6 +251,31 @@ final class DashboardViewModel: ObservableObject {
         stop()
         start()
         Task { await refresh() }
+    }
+
+    func setRefreshSeconds(_ seconds: Int) {
+        let clamped = min(max(seconds, 3), 30)
+        refreshSeconds = clamped
+        UserDefaults.standard.set(clamped, forKey: "refresh_seconds")
+    }
+
+    /// Probe a candidate bridge address (the Settings draft, not the
+    /// saved URL): GET /api/health, report latency + bridge version.
+    func testConnection(_ urlString: String) async {
+        testState = .testing
+        do {
+            let result = try await client.fetchHealth(baseURLString: urlString)
+            testState = .ok(latencyMs: result.latencyMs, version: result.health.version)
+        } catch {
+            testState = .failed(Self.friendlyError(error))
+        }
+    }
+
+    func clearTestState() {
+        switch testState {
+        case .testing: break
+        default: testState = .idle
+        }
     }
 
     // MARK: - Errors

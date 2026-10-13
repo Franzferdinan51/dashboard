@@ -96,6 +96,67 @@ func fmtRate(_ bps: Int64?) -> String {
     }
 }
 
+// MARK: - Freshness & relative time
+
+/// Android's fmtFreshness: how old the on-screen sample is.
+func fmtFreshness(_ lastUpdated: Date?) -> String {
+    guard let lastUpdated else { return "waiting for first sample" }
+    let ageSec = max(0, Int(Date().timeIntervalSince(lastUpdated)))
+    switch ageSec {
+    case ..<3: return "updated just now"
+    case ..<60: return "updated \(ageSec)s ago"
+    case ..<3600: return "updated \(ageSec / 60)m ago"
+    default: return "updated \(ageSec / 3600)h ago"
+    }
+}
+
+/// "just now" / "5m ago" / "2h ago" / "3d ago" for an epoch-second
+/// timestamp (events feed, grow journal).
+func fmtRelativeTime(_ epochSec: Double?) -> String {
+    guard let epochSec, epochSec.isFinite, epochSec > 0 else { return "" }
+    let age = Date().timeIntervalSince1970 - epochSec
+    if age < 60 { return "just now" }
+    if age < 3600 { return "\(Int(age / 60))m ago" }
+    if age < 86400 { return "\(Int(age / 3600))h ago" }
+    return "\(Int(age / 86400))d ago"
+}
+
+/// A FlexibleTime (epoch number or ISO string) rendered relatively;
+/// an unparseable string passes through trimmed.
+func fmtFlexibleTime(_ t: FlexibleTime) -> String {
+    if let epoch = t.epochSec { return fmtRelativeTime(epoch) }
+    guard let raw = t.raw else { return "" }
+    let parser = ISO8601DateFormatter()
+    parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    var date = parser.date(from: raw)
+    if date == nil {
+        parser.formatOptions = [.withInternetDateTime]
+        date = parser.date(from: raw)
+    }
+    if let date { return fmtRelativeTime(date.timeIntervalSince1970) }
+    return String(raw.prefix(16)).replacingOccurrences(of: "T", with: " ")
+}
+
+// MARK: - Context sizes
+
+/// LM Studio context lengths in the "32k / 256k" house style:
+/// 1024-based k units, no fraction (32768 → "32k", 262144 → "256k").
+func fmtCtx(_ tokens: Int64?) -> String {
+    guard let tokens, tokens > 0 else { return "—" }
+    if tokens < 1024 { return "\(tokens)" }
+    return "\(tokens / 1024)k"
+}
+
+/// A $/kWh rate for labels: trims to significance ("0.14", "0.135"),
+/// never a hardcoded literal — the value comes from the payload.
+func fmtKwhRate(_ rate: Double?) -> String {
+    guard let rate, rate.isFinite else { return "—" }
+    var s = String(format: "%.4f", rate)
+    while s.hasSuffix("0") { s.removeLast() }
+    if s.hasSuffix(".") { s.removeLast() }
+    return "$" + s
+}
+
 // MARK: - Durations
 
 /// Uptime-style duration: "1d 18h", "5h 12m", "12m", "45s".
