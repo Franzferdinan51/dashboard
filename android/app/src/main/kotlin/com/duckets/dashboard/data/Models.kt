@@ -425,6 +425,12 @@ data class CannaAiData(
     val history: List<GrowAnalysis> = emptyList(),
     val providers: List<GrowProvider> = emptyList(),
     val providersUpCount: Int? = null,
+    // Bridge 1.13+: what "degraded" is made of (health components), the
+    // live AC Infinity environment collected off the Moto G, and the
+    // photo-analysis state. All absent on older bridges.
+    val components: List<GrowComponent> = emptyList(),
+    val environment: GrowEnvironment? = null,
+    val analyze: CannaAnalyze? = null,
 )
 
 data class GrowSensor(
@@ -456,6 +462,57 @@ data class GrowAnalysis(
 data class GrowProvider(
     val name: String = "",
     val status: String? = null,
+)
+
+/** One line of CannaAI's health check (bridge 1.13+): database,
+ * lmstudio, openclaw, hermes… — the parts the rolled-up status word
+ * ("degraded") is made of, so the Grow tab can show WHICH part is
+ * unhappy instead of just the word. */
+data class GrowComponent(
+    val name: String = "",
+    val status: String? = null,
+    val detail: String? = null,
+)
+
+/** Live grow-room environment from the AC Infinity controllers,
+ * collected off the Moto G desk phone by the bridge (1.13+). Null
+ * until the collector has produced a first sample. */
+data class GrowEnvironment(
+    val fetchedAtEpochSec: Double? = null,
+    val devices: List<GrowDevice> = emptyList(),
+    val alerts: List<GrowAlert> = emptyList(),
+)
+
+data class GrowDevice(
+    val name: String = "",
+    val id: String? = null,
+    val inside: GrowClimate? = null,
+    val outside: GrowClimate? = null,
+    val ports: List<GrowPort> = emptyList(),
+)
+
+/** One climate reading set; every field nullable — a controller whose
+ * probe reads dashes serves nulls, not zeros. */
+data class GrowClimate(
+    val tempF: Double? = null,
+    val rh: Double? = null,
+    val vpdKpa: Double? = null,
+)
+
+data class GrowPort(
+    val name: String = "",
+    val mode: String? = null,
+    /** Output level 0–10; null = off / no reading (the app shows "--"). */
+    val level: Int? = null,
+)
+
+/** Photo-analysis state (bridge 1.13+): a POST /api/cannaai/analyze
+ * runs for minutes on the vision model; [pending] is the progress
+ * signal and the finished analysis simply appears in history. */
+data class CannaAnalyze(
+    val pending: Boolean = false,
+    val startedAtEpochSec: Double? = null,
+    val lastError: String? = null,
 )
 
 data class SystemOneData(

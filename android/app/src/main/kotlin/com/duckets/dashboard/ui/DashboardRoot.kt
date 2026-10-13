@@ -255,7 +255,7 @@ fun DashboardRoot(windowSizeClass: WindowSizeClass) {
                             Tab.Mining -> MiningScreen(state, columns, onRefresh = { vm.refreshNow() }, listState = miningListState)
                             Tab.Earnings -> EarningsScreen(state, columns, onRefresh = { vm.refreshNow() }, listState = earningsListState)
                             Tab.Actions -> ActionsScreen(state, vm, columns, listState = actionsListState)
-                            Tab.Grow -> GrowScreen(state, columns, onRefresh = { vm.refreshNow() }, listState = growListState)
+                            Tab.Grow -> GrowScreen(state, vm, columns, onRefresh = { vm.refreshNow() }, listState = growListState)
                             Tab.Windows -> WindowsScreen(state, columns, onRefresh = { vm.refreshNow() }, listState = windowsListState)
                             Tab.Settings -> SettingsScreen(state, vm, columns, listState = settingsListState)
                         }
