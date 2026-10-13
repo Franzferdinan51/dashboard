@@ -184,6 +184,19 @@ private fun EstimatesCard(est: EarningsEstimates) {
                 Text("cumulative earnings · bridge ledger",
                     style = MaterialTheme.typography.labelSmall, color = Muse.TextDim)
             }
+            val windows = listOf(
+                "Last hour" to est.componentLastHourUsd,
+                "Last 6 hours" to est.componentLast6hUsd,
+                "Last 24 hours" to est.componentLast24hUsd,
+                "Last 7 days" to est.componentLast7dUsd,
+            ).filter { it.second != null }
+            if (windows.isNotEmpty()) {
+                Spacer(Modifier.height(10.dp))
+                Text("Realized rate by window", style = MaterialTheme.typography.labelSmall, color = Muse.TextFaint)
+                windows.forEach { (label, v) ->
+                    KeyValueRow(label, fmtDayRate(v!!) + "/day")
+                }
+            }
             Spacer(Modifier.height(10.dp))
             if (est.basePerDayUsd != null || est.jobsPerDayUsd != null) {
                 KeyValueRow("Base floor (per day)", est.basePerDayUsd?.let { fmtDayRate(it) } ?: "—")
@@ -316,6 +329,7 @@ private fun ProviderCard(db: DarkbloomStats, connected: Boolean) {
             CardHeader("Trust & attestation")
             Spacer(Modifier.height(8.dp))
             KeyValueRow("Trust level", db.trustLevel ?: "—")
+            SessionExpiryRow(db)
             KeyValueRow("Reason", db.trustReason ?: "—")
             KeyValueRow("Path", db.trustPath ?: "—")
             KeyValueRow("App Attest", when (db.attestAttested) { true -> "attested ✓"; false -> "not attested"; null -> "—" })
@@ -327,6 +341,36 @@ private fun ProviderCard(db: DarkbloomStats, connected: Boolean) {
                     style = MaterialTheme.typography.bodySmall, color = Muse.Warn)
             }
         }
+    }
+}
+
+/** The Darkbloom auth session's end, from trust.session_expires_at.
+ * When it passes, the provider silently stops earning until the
+ * session is refreshed — so an expired session reads as a problem,
+ * not a statistic. */
+@Composable
+private fun SessionExpiryRow(db: DarkbloomStats) {
+    val exp = db.trustSessionExpiresAtEpochSec
+    if (exp == null) {
+        KeyValueRow("Session expires", "—")
+        return
+    }
+    val nowSec = System.currentTimeMillis() / 1000.0
+    val remaining = exp - nowSec
+    val clock = java.text.SimpleDateFormat("MMM d, h:mm a", java.util.Locale.US)
+        .format(java.util.Date((exp * 1000).toLong()))
+    when {
+        remaining <= 0 -> {
+            KeyValueRow("Session expires", "EXPIRED $clock", valueColor = Muse.Bad)
+            Text("Session expired — earning stops until Darkbloom is re-authenticated on the Mac.",
+                style = MaterialTheme.typography.bodySmall, color = Muse.Bad)
+        }
+        remaining < 6 * 3600 -> KeyValueRow(
+            "Session expires",
+            "in ${fmtDuration(remaining.toLong())} · $clock",
+            valueColor = Muse.Warn,
+        )
+        else -> KeyValueRow("Session expires", "in ${fmtDuration(remaining.toLong())} · $clock")
     }
 }
 

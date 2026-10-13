@@ -51,6 +51,7 @@ import com.duckets.dashboard.ui.fmtDuration
 import com.duckets.dashboard.ui.fmtGb
 import com.duckets.dashboard.ui.fmtPct
 import com.duckets.dashboard.ui.fmtRate
+import com.duckets.dashboard.ui.fmtRelativeTime
 import com.duckets.dashboard.ui.fmtUsd
 import com.duckets.dashboard.ui.shortModel
 import com.duckets.dashboard.vm.DashboardUiState
@@ -77,6 +78,12 @@ fun OverviewScreen(state: DashboardUiState, columns: Int, onRefresh: () -> Unit 
                 item { GaugeCard(state, ov) }
                 item { CombinedProfitCard(state, ov) }
                 item { MiningStrip(state) }
+                if (state.cannaai?.reachable == true) {
+                    item { GrowCard(state) }
+                }
+                if (state.decisions.isNotEmpty()) {
+                    item { EventsCard(state) }
+                }
                 if (columns >= 2) {
                     // Tablet: earnings beside network, LM Studio full width below.
                     item {
@@ -368,7 +375,14 @@ private fun LmStudioCard(ov: Overview, connected: Boolean) {
                             Text(shortModel(m.id), style = MaterialTheme.typography.bodyMedium, color = Muse.Mist,
                                 maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Text(listOfNotNull(m.quantization, m.sizeBytes?.let { fmtBytes(it) },
-                                m.loadedContext?.let { "ctx ${fmtCount(it)}" }).joinToString(" · "),
+                                when {
+                                    m.state == "loaded" && m.loadedContext != null && m.maxContext != null ->
+                                        "ctx ${fmtCount(m.loadedContext)} of ${fmtCount(m.maxContext)}"
+                                    m.state == "loaded" && m.loadedContext != null ->
+                                        "ctx ${fmtCount(m.loadedContext)}"
+                                    m.maxContext != null -> "max ctx ${fmtCount(m.maxContext)}"
+                                    else -> null
+                                }).joinToString(" · "),
                                 style = MaterialTheme.typography.bodySmall, color = Muse.TextFaint,
                                 maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
@@ -386,6 +400,114 @@ private fun LmStudioCard(ov: Overview, connected: Boolean) {
 private fun BoxDot(color: androidx.compose.ui.graphics.Color) {
     androidx.compose.foundation.layout.Box(Modifier.size(8.dp)
         .background(color, androidx.compose.foundation.shape.CircleShape))
+}
+
+/**
+ * "What changed": the bridge watcher's state-change log (GET
+ * /api/decisions) — Darkbloom start/stop/earning, trust changes, LM
+ * Studio up/down and loaded-model changes, newest first. Answers
+ * "when did it stop, and why" without diffing snapshots by eye.
+ */
+@Composable
+private fun EventsCard(state: DashboardUiState) {
+    val events = state.decisions.take(8)
+    MuseCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(20.dp)) {
+            CardHeader("What changed", subtitle = "state changes recorded by the bridge")
+            Spacer(Modifier.height(10.dp))
+            events.forEach { ev ->
+                Row(
+                    Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    BoxDot(eventColor(ev.type))
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(eventLabel(ev.type), style = MaterialTheme.typography.bodyMedium, color = Muse.Mist,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        if (ev.detailText != null) {
+                            Text(ev.detailText, style = MaterialTheme.typography.bodySmall, color = Muse.TextFaint,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                    Text(fmtRelativeTime(ev.tsEpochSec), style = MaterialTheme.typography.bodySmall,
+                        color = Muse.TextDim, maxLines = 1)
+                }
+            }
+        }
+    }
+}
+
+private fun eventLabel(type: String): String = when (type) {
+    "bridge_started" -> "Bridge started"
+    "darkbloom_started" -> "Darkbloom started"
+    "darkbloom_stopped" -> "Darkbloom stopped"
+    "darkbloom_earning_started" -> "Darkbloom earning started"
+    "darkbloom_earning_stopped" -> "Darkbloom earning stopped"
+    "darkbloom_trust_changed" -> "Darkbloom trust changed"
+    "darkbloom_model_changed" -> "Darkbloom model changed"
+    "lmstudio_up" -> "LM Studio came up"
+    "lmstudio_down" -> "LM Studio went down"
+    "lmstudio_models_changed" -> "LM Studio models changed"
+    else -> type.replace('_', ' ').replaceFirstChar { it.uppercase() }
+}
+
+private fun eventColor(type: String): androidx.compose.ui.graphics.Color = when {
+    type.endsWith("_stopped") || type == "lmstudio_down" -> Muse.Bad
+    type.endsWith("_started") || type == "lmstudio_up" || type == "bridge_started" -> Muse.Good
+    type.contains("trust") -> Muse.Warn
+    else -> Muse.Sky
+}
+
+/**
+ * Grow at a glance: CannaAI's live state proxied by the bridge
+ * (GET /api/cannaai). Rendered only while CannaAI answers — an absent
+ * card means the grow app is off, not that the plants vanished.
+ */
+@Composable
+private fun GrowCard(state: DashboardUiState) {
+    val g = state.cannaai ?: return
+    MuseCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(20.dp)) {
+            CardHeader("Grow — CannaAI", subtitle = "grow room, live from CannaAI") {
+                StatusChip((g.status ?: "UP").uppercase(java.util.Locale.US), Muse.Good, pulse = true)
+            }
+            Spacer(Modifier.height(10.dp))
+            g.sensors.forEach { s ->
+                KeyValueRow(s.label, s.value + (s.unit?.let { " $it" } ?: ""))
+            }
+            g.alerts.forEach { a ->
+                Spacer(Modifier.height(6.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    BoxDot(
+                        when (a.level?.lowercase()) {
+                            "critical", "error", "high" -> Muse.Bad
+                            "warning", "warn", "medium" -> Muse.Warn
+                            else -> Muse.Sky
+                        }
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        a.text + (a.at?.takeIf { it.isNotBlank() }?.let { " · $it" } ?: ""),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Muse.Mist, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            if (g.journalText != null) {
+                Spacer(Modifier.height(8.dp))
+                Text("Latest journal", style = MaterialTheme.typography.labelSmall, color = Muse.TextFaint)
+                Text(
+                    g.journalText + (g.journalAt?.takeIf { it.isNotBlank() }?.let { " — $it" } ?: ""),
+                    style = MaterialTheme.typography.bodyMedium, color = Muse.TextDim,
+                    maxLines = 3, overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (g.providersUp != null) {
+                KeyValueRow("AI providers", if (g.providersUp) "up" else "down")
+            }
+        }
+    }
 }
 
 /**

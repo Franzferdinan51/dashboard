@@ -1,5 +1,6 @@
 package com.duckets.dashboard.ui.screens
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,12 +37,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.duckets.dashboard.data.ActionsData
+import com.duckets.dashboard.data.LmModel
 import com.duckets.dashboard.theme.Muse
 import com.duckets.dashboard.ui.components.CardHeader
 import com.duckets.dashboard.ui.components.KeyValueRow
 import com.duckets.dashboard.ui.components.MuseCard
 import com.duckets.dashboard.ui.components.SkeletonCard
 import com.duckets.dashboard.ui.components.StatusChip
+import com.duckets.dashboard.ui.fmtBytes
+import com.duckets.dashboard.ui.fmtCount
+import com.duckets.dashboard.ui.fmtRelativeTime
+import com.duckets.dashboard.ui.shortModel
 import com.duckets.dashboard.vm.ActionsUiState
 import com.duckets.dashboard.vm.DashboardUiState
 import com.duckets.dashboard.vm.DashboardViewModel
@@ -84,10 +90,19 @@ fun ActionsScreen(state: DashboardUiState, vm: DashboardViewModel, columns: Int 
                 val loadError = actions.loadError
                 when {
                     data != null -> {
-                        item { LmStudioCard(data, actions, onAction = { pending = it }) }
+                        item {
+                            LmStudioCard(
+                                data, actions,
+                                lmModels = state.overview?.lmstudio?.models.orEmpty(),
+                                onAction = { pending = it },
+                            )
+                        }
                         item { DarkbloomCard(data, actions, onAction = { pending = it }) }
                         item { MiningActionsCard(data, actions, onAction = { pending = it }) }
                         item { BridgeCard(data, actions, onAction = { pending = it }) }
+                        if (data.history.isNotEmpty()) {
+                            item { ActionsHistoryCard(data.history) }
+                        }
                     }
                     loadError != null -> item {
                         MuseCard(Modifier.fillMaxWidth()) {
@@ -185,8 +200,34 @@ private fun SectionResult(actions: ActionsUiState, section: String) {
     )
 }
 
+/** Detail line for an Actions row, joined from the /api/lmstudio
+ * library entry: quant · size · context. Loaded models show the
+ * context they're actually running at against their maximum — a model
+ * loaded at a sliver of its context is a silent capability cut. */
+private fun lmDetail(m: LmModel?, loadedNow: Boolean): String? {
+    if (m == null) return null
+    val ctx = when {
+        loadedNow && m.loadedContext != null && m.maxContext != null ->
+            "ctx ${fmtCount(m.loadedContext)} of ${fmtCount(m.maxContext)}"
+        loadedNow && m.loadedContext != null -> "ctx ${fmtCount(m.loadedContext)}"
+        m.maxContext != null -> "max ctx ${fmtCount(m.maxContext)}"
+        else -> null
+    }
+    return listOfNotNull(m.quantization, m.sizeBytes?.let { fmtBytes(it) }, ctx)
+        .joinToString(" · ").ifBlank { null }
+}
+
+private fun findLmModel(models: List<LmModel>, key: String): LmModel? =
+    models.firstOrNull { it.id == key }
+        ?: models.firstOrNull { shortModel(it.id) == shortModel(key) }
+
 @Composable
-private fun LmStudioCard(data: ActionsData, actions: ActionsUiState, onAction: (PendingAction) -> Unit) {
+private fun LmStudioCard(
+    data: ActionsData,
+    actions: ActionsUiState,
+    lmModels: List<LmModel> = emptyList(),
+    onAction: (PendingAction) -> Unit,
+) {
     // Any action running locks every button on the tab (the VM enforces
     // one-at-a-time too); only the running button shows its spinner.
     val anyBusy = actions.inFlight != null
@@ -209,10 +250,16 @@ private fun LmStudioCard(data: ActionsData, actions: ActionsUiState, onAction: (
                         Modifier.fillMaxWidth().padding(vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(
-                            m.identifier, style = MaterialTheme.typography.bodyMedium, color = Muse.Mist,
-                            modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        )
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                m.identifier, style = MaterialTheme.typography.bodyMedium, color = Muse.Mist,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            )
+                            lmDetail(findLmModel(lmModels, m.identifier), loadedNow = true)?.let { d ->
+                                Text(d, style = MaterialTheme.typography.bodySmall, color = Muse.TextFaint,
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
                         Spacer(Modifier.width(10.dp))
                         ActionButton(
                             label = "Unload", busyLabel = "Unloading…",
@@ -248,8 +295,10 @@ private fun LmStudioCard(data: ActionsData, actions: ActionsUiState, onAction: (
                                 m.key, style = MaterialTheme.typography.bodyMedium, color = Muse.Mist,
                                 maxLines = 1, overflow = TextOverflow.Ellipsis,
                             )
-                            if (m.size != null) {
-                                Text(m.size, style = MaterialTheme.typography.bodySmall, color = Muse.TextFaint)
+                            val detail = lmDetail(findLmModel(lmModels, m.key), loadedNow = false) ?: m.size
+                            if (detail != null) {
+                                Text(detail, style = MaterialTheme.typography.bodySmall, color = Muse.TextFaint,
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                         }
                         Spacer(Modifier.width(10.dp))
@@ -357,6 +406,58 @@ private fun MiningActionsCard(data: ActionsData, actions: ActionsUiState, onActi
                 )
             }
             SectionResult(actions, "mining")
+        }
+    }
+}
+
+private fun actionLabel(action: String): String = when (action) {
+    "lm_load" -> "Load model"
+    "lm_unload" -> "Unload model"
+    "darkbloom_restart" -> "Restart Darkbloom"
+    "miner_start" -> "Start miner"
+    "miner_stop" -> "Stop miner"
+    "bridge_restart" -> "Restart bridge"
+    else -> action.replace('_', ' ').replaceFirstChar { it.uppercase() }
+}
+
+/** The bridge's read-back of its own actions ledger: every tap, when
+ * it happened, and the answer it gave — including the rejections a
+ * section result may already have scrolled past. */
+@Composable
+private fun ActionsHistoryCard(history: List<com.duckets.dashboard.data.ActionHistoryEntry>) {
+    MuseCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(20.dp)) {
+            CardHeader("Recent activity", subtitle = "actions recorded by the bridge")
+            Spacer(Modifier.height(10.dp))
+            history.take(12).forEach { h ->
+                Row(
+                    Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    androidx.compose.foundation.layout.Box(
+                        Modifier.size(8.dp).background(
+                            if (h.ok) Muse.Good else Muse.Bad,
+                            androidx.compose.foundation.shape.CircleShape,
+                        )
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            actionLabel(h.action) +
+                                (h.target?.let { " · ${shortModel(it)}" } ?: ""),
+                            style = MaterialTheme.typography.bodyMedium, color = Muse.Mist,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        )
+                        if (h.message != null) {
+                            Text(h.message, style = MaterialTheme.typography.bodySmall,
+                                color = if (h.ok) Muse.TextFaint else Muse.Bad,
+                                maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                    Text(fmtRelativeTime(h.tsEpochSec), style = MaterialTheme.typography.bodySmall,
+                        color = Muse.TextDim, maxLines = 1)
+                }
+            }
         }
     }
 }

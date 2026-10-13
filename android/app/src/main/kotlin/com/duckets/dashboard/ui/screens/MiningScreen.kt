@@ -22,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.duckets.dashboard.data.BatmanHistory
 import com.duckets.dashboard.data.BatmanVerified
+import com.duckets.dashboard.data.MiningProfit
 import com.duckets.dashboard.theme.Muse
 import com.duckets.dashboard.ui.components.CardHeader
 import com.duckets.dashboard.ui.components.KeyValueRow
@@ -41,6 +42,11 @@ internal fun usdD(v: Double?, digits: Int = 2): String =
 internal fun fmtClock(epochSec: Double?): String =
     if (epochSec == null) "—"
     else SimpleDateFormat("MMM d, h:mm a", Locale.US).format(Date((epochSec * 1000).toLong()))
+
+/** Electricity rate for display: "0.12" not "0.120", but keep a real
+ * third decimal when the rate has one ("0.115"). */
+internal fun trimRate(rate: Double): String =
+    String.format(Locale.US, "%.3f", rate).trimEnd('0').trimEnd('.')
 
 /**
  * Mining is Batman-3 only, and every number on this tab is computed by
@@ -72,7 +78,7 @@ fun MiningScreen(state: DashboardUiState, columns: Int = 1, onRefresh: () -> Uni
                         }
                     }
                 } else {
-                    item { VerifiedCard(mn.batmanVerified) }
+                    item { VerifiedCard(mn.batmanVerified, mn.profit) }
                     mn.batmanHistory?.let { h -> item { HistoryCard(h) } }
                     item { LiveMinerCard(state) }
                 }
@@ -83,7 +89,7 @@ fun MiningScreen(state: DashboardUiState, columns: Int = 1, onRefresh: () -> Uni
 }
 
 @Composable
-private fun VerifiedCard(ver: BatmanVerified?) {
+private fun VerifiedCard(ver: BatmanVerified?, profit: MiningProfit? = null) {
     MuseCard(Modifier.fillMaxWidth(), hero = true) {
         Column(Modifier.padding(20.dp)) {
             CardHeader("Batman-3 — verified mining earnings", subtitle = "miner log × live network")
@@ -109,6 +115,18 @@ private fun VerifiedCard(ver: BatmanVerified?) {
                     if (ver.kryptexClaimPerDayUsd != null)
                         "${usdD(ver.kryptexClaimPerDayUsd)}/day — verified runs ${String.format(Locale.US, "%+.1f", ver.deltaVsClaimPct ?: 0.0)}% vs the claim"
                     else "—")
+                if (profit != null && profit.powerCostDay != null) {
+                    KeyValueRow(
+                        "Power" + (profit.rateUsdKwh?.let { " (at $${trimRate(it)}/kWh)" } ?: ""),
+                        "−${usdD(profit.powerCostDay)}/day" +
+                            (profit.kwhPerDay?.let { " · ${String.format(Locale.US, "%.2f", it)} kWh" } ?: "") +
+                            (profit.powerW?.let { " · ${String.format(Locale.US, "%.0f", it)} W" } ?: ""),
+                        valueColor = Muse.Warn,
+                    )
+                }
+                if (profit?.netDay != null) {
+                    KeyValueRow("Net after power", "${usdD(profit.netDay)}/day", valueColor = Muse.Good)
+                }
                 Spacer(Modifier.height(8.dp))
                 Text(
                     "Computed from the miner's own log (sustained average hashrate) × live Pearl network emission (WhatToMine) × live PRL price (CoinGecko), less Kryptex's 3% pool fee. Kryptex's dashboard figures are not an input.",
