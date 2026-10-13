@@ -43,6 +43,7 @@ data class DashboardUiState(
     val latencyMs: Long? = null,
     val testState: TestState = TestState.Idle,
     val actions: ActionsUiState = ActionsUiState(),
+    val grow: GrowUiState = GrowUiState(),
     val cpuHistory: List<Float> = emptyList(),
     val ramHistory: List<Float> = emptyList(),
     val gpuHistory: List<Float> = emptyList(),
@@ -75,6 +76,22 @@ data class ActionsUiState(
 data class InFlightAction(val action: String, val target: String? = null)
 
 data class ActionOutcome(val message: String, val ok: Boolean)
+
+/** Grow tab photo-analysis submit state. The long-running part lives
+ * bridge-side (payload `analyze.pending` on the side-cadence poll is
+ * the progress channel); this only tracks OUR POST: sending, queued,
+ * refused because one is already running, or failed. */
+data class GrowUiState(
+    val analyzePhase: AnalyzePhase = AnalyzePhase.Idle,
+)
+
+sealed interface AnalyzePhase {
+    data object Idle : AnalyzePhase
+    data object Sending : AnalyzePhase
+    data object Queued : AnalyzePhase
+    data object AlreadyRunning : AnalyzePhase
+    data class Failed(val message: String) : AnalyzePhase
+}
 
 sealed interface TestState {
     data object Idle : TestState
@@ -197,12 +214,20 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
                         cannaai != null || systemone != null) && gen == urlGeneration
                 ) {
                     _state.update {
+                        // The bridge says the analysis finished (or
+                        // never started): our "queued" note has done its
+                        // job — the result is in the history now.
+                        val growState =
+                            if (cannaai != null && cannaai.analyze?.pending != true &&
+                                it.grow.analyzePhase == AnalyzePhase.Queued
+                            ) GrowUiState() else it.grow
                         it.copy(
                             mining = mining ?: it.mining,
                             windows = windows ?: it.windows,
                             decisions = decisions ?: it.decisions,
                             cannaai = cannaai ?: it.cannaai,
                             systemone = systemone ?: it.systemone,
+                            grow = growState,
                         )
                     }
                 }
@@ -354,6 +379,65 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /**
+     * Send a picked plant photo to CannaAI (POST /api/cannaai/analyze).
+     * The photo work (decode → EXIF-upright → downscale → JPEG →
+     * base64) happens here so the screen stays dumb; the POST answers
+     * immediately and the minutes-long analysis is then tracked via
+     * the payload's analyze.pending on the normal poll — the result
+     * lands at the top of the Grow tab's history by itself.
+     */
+    fun submitAnalyze(uri: android.net.Uri, strain: String?, notes: String?) {
+        // One submit at a time, claimed synchronously like performAction.
+        var claimed = false
+        _state.update {
+            if (it.grow.analyzePhase == AnalyzePhase.Sending) {
+                it
+            } else {
+                claimed = true
+                it.copy(grow = GrowUiState(AnalyzePhase.Sending))
+            }
+        }
+        if (!claimed) return
+        val url = _state.value.bridgeUrl
+        val gen = urlGeneration
+        val appContext = getApplication<Application>().applicationContext
+        viewModelScope.launch {
+            try {
+                val base64 = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    encodePhotoForAnalysis(appContext, uri)
+                }
+                val result = repo.postCannaAiAnalyze(url, base64, strain, notes)
+                if (gen == urlGeneration) {
+                    _state.update {
+                        it.copy(
+                            grow = GrowUiState(
+                                when {
+                                    result.accepted -> AnalyzePhase.Queued
+                                    result.alreadyPending -> AnalyzePhase.AlreadyRunning
+                                    else -> AnalyzePhase.Failed(
+                                        result.error ?: "The bridge couldn't start the analysis."
+                                    )
+                                }
+                            )
+                        )
+                    }
+                }
+            } catch (e: CancellationException) {
+                if (gen == urlGeneration) {
+                    _state.update { it.copy(grow = GrowUiState()) }
+                }
+                throw e
+            } catch (e: Exception) {
+                if (gen == urlGeneration) {
+                    _state.update {
+                        it.copy(grow = GrowUiState(AnalyzePhase.Failed(friendlyError(e))))
+                    }
+                }
+            }
+        }
+    }
+
     fun testConnection(url: String) {
         testJob?.cancel()
         testJob = viewModelScope.launch {
@@ -382,7 +466,7 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
             it.copy(
                 bridgeUrl = clean, overview = null, mining = null, windows = null,
                 decisions = emptyList(), cannaai = null, systemone = null,
-                actions = ActionsUiState(),
+                actions = ActionsUiState(), grow = GrowUiState(),
                 connected = false, everConnected = false,
                 lastError = null, lastUpdatedMillis = 0L, dataTimestampMillis = 0L,
                 latencyMs = null, testState = TestState.Idle,
@@ -411,4 +495,79 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
         e is IllegalArgumentException -> "That bridge address doesn't look right."
         else -> "Couldn't reach the bridge."
     }
+}
+
+/** Decode a picked photo, upright it per its EXIF orientation, shrink
+ * it to at most 1600 px on the long edge, and JPEG-encode it (~q85)
+ * as base64 for POST /api/cannaai/analyze. Runs on Dispatchers.IO. */
+private fun encodePhotoForAnalysis(context: android.content.Context, uri: android.net.Uri): String {
+    val resolver = context.contentResolver
+    val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    resolver.openInputStream(uri)?.use { input ->
+        android.graphics.BitmapFactory.decodeStream(input, null, bounds)
+    } ?: throw java.io.IOException("Couldn't open that photo.")
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+        throw java.io.IOException("That file doesn't look like a photo the app can read.")
+    }
+    // Power-of-two pre-shrink toward the 1600 px cap, then an exact
+    // scale — decoding a 50 MP original at full size just to shrink
+    // it would spike memory for nothing.
+    var sample = 1
+    while (bounds.outWidth / (sample * 2) >= 1600 && bounds.outHeight / (sample * 2) >= 1600) {
+        sample *= 2
+    }
+    val decoded = resolver.openInputStream(uri)?.use { input ->
+        android.graphics.BitmapFactory.decodeStream(
+            input, null,
+            android.graphics.BitmapFactory.Options().apply { inSampleSize = sample },
+        )
+    } ?: throw java.io.IOException("Couldn't read that photo.")
+    var bitmap = decoded
+    // EXIF upright: a sideways plant photo analyzes badly. The stream
+    // must be a FRESH one — the decode above consumed its own.
+    val orientation = try {
+        resolver.openInputStream(uri)?.use { input ->
+            android.media.ExifInterface(input)
+                .getAttributeInt(android.media.ExifInterface.TAG_ORIENTATION,
+                    android.media.ExifInterface.ORIENTATION_NORMAL)
+        } ?: android.media.ExifInterface.ORIENTATION_NORMAL
+    } catch (e: Exception) {
+        android.media.ExifInterface.ORIENTATION_NORMAL
+    }
+    val matrix = android.graphics.Matrix()
+    when (orientation) {
+        android.media.ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
+        android.media.ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
+        android.media.ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
+        android.media.ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.postScale(-1f, 1f)
+        android.media.ExifInterface.ORIENTATION_FLIP_VERTICAL -> matrix.postScale(1f, -1f)
+        else -> Unit
+    }
+    if (!matrix.isIdentity) {
+        val rotated = android.graphics.Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+        if (rotated !== bitmap) {
+            bitmap.recycle()
+            bitmap = rotated
+        }
+    }
+    val longEdge = maxOf(bitmap.width, bitmap.height)
+    if (longEdge > 1600) {
+        val scale = 1600f / longEdge
+        val scaled = android.graphics.Bitmap.createScaledBitmap(
+            bitmap,
+            (bitmap.width * scale).toInt().coerceAtLeast(1),
+            (bitmap.height * scale).toInt().coerceAtLeast(1),
+            true,
+        )
+        if (scaled !== bitmap) {
+            bitmap.recycle()
+            bitmap = scaled
+        }
+    }
+    val bytes = java.io.ByteArrayOutputStream().use { out ->
+        bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, out)
+        out.toByteArray()
+    }
+    bitmap.recycle()
+    return android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
 }
