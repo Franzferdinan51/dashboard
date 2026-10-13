@@ -130,6 +130,41 @@ class DashboardRepository(
         return parseActionResult(postJson(baseUrl, "/api/action", payload), action)
     }
 
+    /** Outcome of POST /api/cannaai/analyze: 202 = the vision model is
+     * on it (watch `analyze.pending` + the history), 409 = one is
+     * already running, anything else is an error with the bridge's
+     * words when it sent any. */
+    data class AnalyzePostResult(
+        val accepted: Boolean = false,
+        val alreadyPending: Boolean = false,
+        val error: String? = null,
+    )
+
+    suspend fun postCannaAiAnalyze(
+        baseUrl: String,
+        imageBase64: String,
+        strain: String?,
+        notes: String?,
+    ): AnalyzePostResult {
+        val payload = JSONObject()
+        payload.put("image_base64", imageBase64)
+        if (!strain.isNullOrBlank()) payload.put("strain", strain)
+        if (!notes.isNullOrBlank()) payload.put("notes", notes)
+        // The POST itself answers immediately (202/409/400); the
+        // minutes-long part is the analysis, tracked via the payload's
+        // analyze.pending on the normal poll.
+        val (code, text) = postRaw(baseUrl, "/api/cannaai/analyze", payload)
+        val body = withContext(Dispatchers.IO) {
+            try { JSONObject(text) } catch (e: JSONException) { null }
+        }
+        val error = body?.str("error")
+        return when (code) {
+            202 -> AnalyzePostResult(accepted = true)
+            409 -> AnalyzePostResult(alreadyPending = true, error = error)
+            else -> AnalyzePostResult(error = error ?: "Bridge returned HTTP $code")
+        }
+    }
+
     /**
      * POST counterpart to getJson, with two deliberate differences: it
      * runs on ACTION_CLIENT (an action may take minutes server-side), and
@@ -138,12 +173,31 @@ class DashboardRepository(
      * on screen, not folded into a generic HTTP error.
      */
     private suspend fun postJson(baseUrl: String, path: String, payload: JSONObject): JSONObject {
+        val (code, text) = postRaw(baseUrl, path, payload)
+        return withContext(Dispatchers.IO) {
+            try {
+                JSONObject(text)
+            } catch (e: JSONException) {
+                // A non-JSON body on an error status is a transport-level
+                // failure (proxy page, captive portal); on a 200 it is a
+                // bridge bug. Either way the caller gets an exception,
+                // never a fabricated result.
+                if (code in 200..299) throw e
+                throw IOException("Bridge returned HTTP $code")
+            }
+        }
+    }
+
+    /** Raw POST on ACTION_CLIENT: (HTTP status, body text), whatever
+     * the status — callers that distinguish statuses (202 vs 409 vs
+     * 400 on the analyze endpoint) need both, uninterpreted. */
+    private suspend fun postRaw(baseUrl: String, path: String, payload: JSONObject): Pair<Int, String> {
         val url = normalizeBaseUrl(baseUrl) + path
         val req = Request.Builder().url(url)
             .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
             .build()
         val call = ACTION_CLIENT.newCall(req)
-        val (code, text) = suspendCancellableCoroutine { cont ->
+        return suspendCancellableCoroutine { cont ->
             cont.invokeOnCancellation { call.cancel() }
             call.enqueue(object : Callback {
                 override fun onFailure(call: Call, e: IOException) {
@@ -161,18 +215,6 @@ class DashboardRepository(
                     }
                 }
             })
-        }
-        return withContext(Dispatchers.IO) {
-            try {
-                JSONObject(text)
-            } catch (e: JSONException) {
-                // A non-JSON body on an error status is a transport-level
-                // failure (proxy page, captive portal); on a 200 it is a
-                // bridge bug. Either way the caller gets an exception,
-                // never a fabricated result.
-                if (code in 200..299) throw e
-                throw IOException("Bridge returned HTTP $code")
-            }
         }
     }
 }
@@ -819,6 +861,91 @@ private fun parseCannaAi(c: JSONObject): CannaAiData {
         is Boolean -> if (v) 1 else 0
         else -> null
     }
+    // Bridge 1.13+: health components — what the rolled-up status is
+    // made of (database / lmstudio / openclaw / hermes …).
+    val components = buildList {
+        c.arr("components")?.let { a ->
+            for (i in 0 until a.length()) {
+                val cp = a.optJSONObject(i) ?: continue
+                add(
+                    GrowComponent(
+                        name = cp.str("name") ?: cp.str("id") ?: "component",
+                        status = cp.str("status"),
+                        detail = cp.str("detail"),
+                    )
+                )
+            }
+        }
+    }
+    // Bridge 1.13+: the AC Infinity environment off the Moto G. Null
+    // until the collector's first sample; every reading inside it is
+    // nullable too (a probe reading dashes serves nulls, not zeros).
+    val environment = c.obj("environment")?.let { env ->
+        fun climate(o: JSONObject?): GrowClimate? = o?.let {
+            GrowClimate(
+                tempF = it.dbl("temp_f"),
+                rh = it.dbl("rh"),
+                vpdKpa = it.dbl("vpd_kpa"),
+            )
+        }
+        val devices = buildList {
+            env.arr("devices")?.let { a ->
+                for (i in 0 until a.length()) {
+                    val d = a.optJSONObject(i) ?: continue
+                    val ports = buildList {
+                        d.arr("ports")?.let { pa ->
+                            for (j in 0 until pa.length()) {
+                                val p = pa.optJSONObject(j) ?: continue
+                                add(
+                                    GrowPort(
+                                        name = p.str("name") ?: "Port",
+                                        mode = p.str("mode"),
+                                        level = p.intOrNull("level"),
+                                    )
+                                )
+                            }
+                        }
+                    }
+                    add(
+                        GrowDevice(
+                            name = d.str("name") ?: "Controller",
+                            id = d.str("id"),
+                            inside = climate(d.obj("inside")),
+                            outside = climate(d.obj("outside")),
+                            ports = ports,
+                        )
+                    )
+                }
+            }
+        }
+        val envAlerts = buildList {
+            env.arr("alerts")?.let { a ->
+                for (i in 0 until a.length()) {
+                    val al = a.optJSONObject(i) ?: continue
+                    add(
+                        GrowAlert(
+                            text = al.str("text") ?: "",
+                            level = al.str("level"),
+                            at = al.str("at"),
+                            atEpochSec = al.epochFlexible("at"),
+                        )
+                    )
+                }
+            }
+        }
+        GrowEnvironment(
+            fetchedAtEpochSec = env.epochFlexible("fetched_at"),
+            devices = devices,
+            alerts = envAlerts,
+        )
+    }
+    val analyze = c.obj("analyze")?.let { an ->
+        CannaAnalyze(
+            pending = an.bool("pending") ?: false,
+            startedAtEpochSec = an.epochFlexible("started_at"),
+            lastError = an.str("last_error"),
+        )
+    }
     val journal = c.obj("journal_latest")
     return CannaAiData(
         reachable = c.bool("reachable") ?: false,
@@ -831,6 +958,9 @@ private fun parseCannaAi(c: JSONObject): CannaAiData {
         history = history,
         providers = providers,
         providersUpCount = providersUpCount,
+        components = components,
+        environment = environment,
+        analyze = analyze,
     )
 }
 
