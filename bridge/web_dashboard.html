@@ -128,6 +128,30 @@
   .cmd{display:flex;gap:8px;align-items:center;background:var(--track);border:1px solid var(--line-soft);
     border-radius:12px;padding:8px 11px;margin-top:7px;font-family:ui-monospace,Menlo,monospace;font-size:12.3px}
   .cmd code{flex:1;word-break:break-all;color:var(--cyan)}
+  .btnPrimary{background:linear-gradient(180deg,#3b8bff,#2f7cf6);color:#fff;border-color:rgba(255,255,255,.25);font-weight:700}
+  .btnPrimary:hover{background:linear-gradient(180deg,#4a97ff,#3b8bff)}
+  button:disabled{opacity:.45;cursor:default}
+  .alabel{font-size:10.5px;letter-spacing:.11em;color:var(--faint);text-transform:uppercase;font-weight:700;margin:14px 0 2px}
+  .arow{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid rgba(143,176,216,.08)}
+  .arow:last-child{border-bottom:none}
+  .arow .am{flex:1;min-width:0}
+  .arow .an{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .arow .ad,.hrow .ad{color:var(--faint);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .aresult{font-size:12.5px;margin-top:10px}
+  .aresult:empty{display:none}
+  .aresult.ok{color:var(--green)} .aresult.bad{color:var(--red)}
+  .hrow{display:flex;gap:10px;padding:7px 2px;border-bottom:1px solid rgba(143,176,216,.08);font-size:12.8px;align-items:flex-start}
+  .hrow:last-child{border-bottom:none}
+  .hrow .hdot{width:8px;height:8px;border-radius:50%;flex:none;margin-top:6px}
+  .hrow .am{flex:1;min-width:0}
+  .hrow .an2{font-weight:600}
+  .hrow .t{color:var(--faint);white-space:nowrap;font-variant-numeric:tabular-nums}
+  .modalWrap{position:fixed;inset:0;background:rgba(3,8,18,.66);display:none;align-items:center;justify-content:center;z-index:60;padding:20px}
+  .modalWrap.open{display:flex}
+  .modal{background:linear-gradient(165deg,var(--card1),var(--card2));border:1px solid var(--line);border-radius:20px;padding:20px 22px;max-width:420px;width:100%;box-shadow:var(--shadow)}
+  .modal h3{margin:0 0 8px;font-size:16px}
+  .modal p{margin:0 0 16px;color:var(--dim);font-size:13px;line-height:1.55}
+  .modal .mrow{display:flex;gap:10px;justify-content:flex-end}
   footer{padding:0 20px 20px;color:var(--faint);font-size:12px}
 </style>
 </head>
@@ -155,6 +179,7 @@
   <button data-view="db">Darkbloom</button>
   <button data-view="mining">Mining</button>
   <button data-view="earn">Earnings</button>
+  <button data-view="actions">Actions</button>
   <button data-view="win">Windows</button>
   <button data-view="events">Events<span class="bdg" id="evtBadge" style="display:none">0</span></button>
   <button data-view="console">Console</button>
@@ -310,6 +335,7 @@
     <h2>Batman-3 — verified mining earnings <span class="right">miner log × live network</span></h2>
     <div class="big" id="verBig">—</div>
     <div class="rows" id="verRows"></div>
+    <div class="rows" id="profitRows"></div>
     <div class="note">Computed from the miner's own log (sustained average hashrate) × live Pearl network emission (WhatToMine) × live PRL price (CoinGecko), less Kryptex's 3% pool fee. Kryptex's dashboard figures are not an input — their 24h worker stats are broken and their $ amounts ride a noisy 30-minute pool-side hashrate.</div>
   </section>
 
@@ -330,6 +356,7 @@
     <h2>Windows PC — Batman-3 <span class="right"><span class="chip ok" id="winChip"><span class="dot"></span>—</span></span></h2>
     <div style="font-size:20px;font-weight:700" id="winName">Batman-3</div>
     <div class="chips" id="winChips"></div>
+    <div class="rows" id="winFetchedRow"></div>
     <div class="heroStats">
       <div class="hs"><div class="k">Uptime</div><div class="v" id="wUptime">—</div></div>
       <div class="hs"><div class="k">CPU load</div><div class="v" id="wCpuLoad">—</div></div>
@@ -376,6 +403,44 @@
     </div>
   </section>
 
+  <section class="card s6" data-views="actions">
+    <h2>LM Studio <span class="right">models on the Mac — a cold load can take minutes</span></h2>
+    <div class="chips" id="actLmChips"></div>
+    <div class="alabel">Loaded</div>
+    <div id="actLmLoaded"><div class="rows"><div class="row"><span class="k">Waiting for actions data from the bridge…</span></div></div></div>
+    <div class="alabel">Library</div>
+    <div id="actLmAvail"></div>
+    <div class="aresult" id="actResLm"></div>
+  </section>
+
+  <section class="card s6" data-views="actions">
+    <h2>Darkbloom <span class="right">provider service on the Mac</span></h2>
+    <div class="chips" id="actDbChips"></div>
+    <div class="rows" id="actDbRows"></div>
+    <div style="margin-top:12px"><button class="btnPrimary" id="actDbRestart">Restart Darkbloom</button></div>
+    <div class="aresult" id="actResDb"></div>
+    <h2 style="margin-top:18px">Mining — Batman-3 <span class="right">the miner on the Windows PC</span></h2>
+    <div class="chips" id="actMineChips"></div>
+    <div class="rows" id="actMineRows"></div>
+    <div style="margin-top:12px;display:flex;gap:10px">
+      <button class="btnPrimary" id="actMinerStart">Start miner</button>
+      <button id="actMinerStop">Stop miner</button>
+    </div>
+    <div class="aresult" id="actResMine"></div>
+  </section>
+
+  <section class="card s6" data-views="actions">
+    <h2>Bridge <span class="right">the dashboard bridge itself</span></h2>
+    <div class="rows" id="actBridgeRows"></div>
+    <div style="margin-top:12px"><button class="btnPrimary" id="actBridgeRestart">Restart bridge</button></div>
+    <div class="aresult" id="actResBridge"></div>
+  </section>
+
+  <section class="card s12" data-views="actions" id="actHistCard">
+    <h2>Recent activity <span class="right">actions recorded by the bridge</span></h2>
+    <div id="actHistory"></div>
+  </section>
+
   <section class="card s8" data-views="events">
     <h2>Decisions — state changes <span class="right">bridge log</span></h2>
     <div class="chips" id="evtFilters">
@@ -406,12 +471,23 @@
     </div>
     <h2 style="margin-top:16px">About</h2>
     <div class="rows" id="aboutRows"></div>
-    <p style="color:var(--dim);font-size:12.8px">The detailed web companion to the phone/tablet app — same bridge, same data, plus the analytics layer. Read-only; nothing here can change the Mac. Shortcuts: 1–8 switch views, R refreshes, P pauses.</p>
+    <p style="color:var(--dim);font-size:12.8px">The detailed web companion to the phone/tablet app — same bridge, same data, plus the analytics layer. Everything is read-only except the Actions tab, which can load/unload LM Studio models, restart Darkbloom and the bridge, and start/stop the miner — every action asks first. Shortcuts: 1–9 switch views, R refreshes, P pauses.</p>
   </section>
 </main>
 
+<div class="modalWrap" id="confirmWrap">
+  <div class="modal">
+    <h3 id="confirmTitle"></h3>
+    <p id="confirmBody"></p>
+    <div class="mrow">
+      <button id="confirmCancel">Cancel</button>
+      <button id="confirmOk" class="btnPrimary"></button>
+    </div>
+  </div>
+</div>
+
 <div id="toasts"></div>
-<footer>Served by the dashboard bridge on this Mac · /api/overview · /api/system · /api/darkbloom · /api/lmstudio · /api/windows · /api/mining · /api/decisions · /mcp</footer>
+<footer>Served by the dashboard bridge on this Mac · /api/overview · /api/system · /api/darkbloom · /api/lmstudio · /api/windows · /api/mining · /api/decisions · /api/actions · /api/cannaai · /api/systemone · /mcp</footer>
 
 <script>
 "use strict";
@@ -647,7 +723,8 @@ function render(ov) {
   $("lmsRows").innerHTML =
     row("Reachable", lms.reachable ? "yes" : "no") +
     row("Loaded models", esc(lms.loaded_count ?? 0)) +
-    (lms.reachable ? "" : row("Error", esc(String(lms.error || "").slice(0, 90))));
+    (lms.reachable ? "" : row("Error", esc(String(lms.error || "").slice(0, 90)))) +
+    lmOverviewRows(lms);
 
   // system detail
   const th = sys.thermal || {};
@@ -747,7 +824,7 @@ function renderDarkbloom(db, earn, est) {
   $("trustRows").innerHTML =
     row("Trust level", esc(tr.level || "—")) + row("Status", esc(tr.status || "—")) +
     row("Reason", esc(tr.reason || "—")) + row("Path", esc(tr.path || "—")) +
-    row("Session expires", tr.session_expires_at ? `${fmtClock(tr.session_expires_at)} (${fmtDur(tr.session_expires_at - Date.now() / 1000)} left)` : "—") +
+    (tr.session_expires_at ? row("Session expires", `${fmtClock(tr.session_expires_at)} (${fmtDur(tr.session_expires_at - Date.now() / 1000)} left)`) : "") +
     row("Verification pending", db.verification_pending ? "yes" : "no");
   $("attestRows").innerHTML =
     row("Attested", at.attested == null ? "—" : (at.attested ? "yes" : "no")) +
@@ -1062,6 +1139,14 @@ function renderMining(mn) {
     $("verBig").textContent = "—";
     $("verRows").innerHTML = row("Status", "waiting on live hashrate + network data");
   }
+  // True profit: the bridge prices the miner's live power draw at the
+  // configured $/kWh rate. Hidden when the block is absent (older
+  // bridge) or the miner is off (net_day null).
+  const pf = mn.profit;
+  $("profitRows").innerHTML = pf && pf.net_day != null
+    ? row(`Power (at $${pf.rate_usd_kwh}/kWh)`, `−${fmtUsd(pf.power_cost_day, 2)}/day · ${trimNum(pf.power_w)} W · ${trimNum(pf.kwh_per_day)} kWh/day`) +
+      row("Net after power", `<span style="color:var(--green)">${fmtUsd(pf.net_day, 2)}/day</span>`)
+    : "";
   if (hist && (hist.points || []).length >= 2) {
     $("histRange").textContent = `${hist.span_hours}h of log · ${fmtInt(hist.sample_count)} samples`;
     plotMulti($("chHist"), [{ pts: hist.points, color: "#f5a623", width: 1.8 }],
@@ -1070,6 +1155,7 @@ function renderMining(mn) {
       row("Coverage", `${fmtClock(hist.coverage_from)} → ${fmtClock(hist.coverage_to)}`) +
       row("Average (active)", hist.avg_active_ths != null ? `${hist.avg_active_ths} TH/s` : "—") +
       row("Average (overall)", hist.avg_overall_ths != null ? `${hist.avg_overall_ths} TH/s` : "—") +
+      (hist.avg_24h_overall_ths != null ? row("24h overall avg", `${hist.avg_24h_overall_ths} TH/s${hist.win24_span_hours != null ? ` <span style="color:var(--faint)">(over ${hist.win24_span_hours}h)</span>` : ""}`) : "") +
       row("Uptime in log", hist.uptime_fraction != null ? Math.round(hist.uptime_fraction * 100) + "%" : "—") +
       row("Realized in window", hist.realized_prl_est != null
         ? `${hist.realized_prl_est} PRL ≈ ${fmtUsd(hist.realized_usd_net_est, 2)} net` : "—") +
@@ -1091,6 +1177,8 @@ function renderMining(mn) {
 
 function renderWindows(w) {
   lastWindows = w;
+  $("winFetchedRow").innerHTML = w && w.fetched_at
+    ? row("PC data as of", `${fmtClock(w.fetched_at)} (${fmtAgo(w.fetched_at)})`) : "";
   const chipEl = $("winChip");
   if (!w || !w.reachable) {
     chipEl.className = "chip bad"; chipEl.innerHTML = `<span class="dot"></span>OFFLINE`;
@@ -1192,6 +1280,15 @@ async function tickSide() {
       fetch("/api/mining", { cache: "no-store" }), fetch("/api/windows", { cache: "no-store" })]);
     if (rm.ok) { const j = await rm.json(); renderMining(j.mining || {}); }
     if (rw.ok) { const j = await rw.json(); renderWindows(j.windows || {}); }
+    try {
+      const rc = await fetch("/api/cannaai", { cache: "no-store" });
+      if (rc.ok) { const j = await rc.json(); renderGrow(j.cannaai || {}); }
+    } catch (e) { /* keep last */ }
+    try {
+      const rs = await fetch("/api/systemone", { cache: "no-store" });
+      if (rs.ok) { const j = await rs.json(); renderSystemOne(j.systemone || {}); }
+    } catch (e) { /* keep last */ }
+    if (currentView === "actions") fetchActions();
   } catch (e) { /* keep last */ }
   sideBusy = false;
   renderCombined();
@@ -1249,6 +1346,316 @@ function jobsCsv() {
   download("darkbloom-jobs.csv", lines.join("\n"), "text/csv");
 }
 
+/* ---------- LM Studio detail lines (quant · size · context) ---------- */
+function trimNum(v) {
+  if (v == null) return "—";
+  const n = Number(v);
+  return Number.isFinite(n) ? String(Math.round(n * 100) / 100) : "—";
+}
+function fmtCtx(v) {
+  if (v == null) return null;
+  const n = Number(v);
+  if (!Number.isFinite(n)) return null;
+  return n >= 1024 ? `${Math.round(n / 1024)}k` : `${n}`;
+}
+/** Detail line for an LM Studio model, joined from the /api/lmstudio
+ * entry: quant · size · context. Loaded models show the context they
+ * are actually running at against their maximum — a model loaded at a
+ * sliver of its context is a silent capability cut. */
+function lmDetail(m, loadedNow) {
+  if (!m) return null;
+  let ctx = null;
+  if (loadedNow && m.loaded_context_length != null && m.max_context_length != null)
+    ctx = `ctx ${fmtCtx(m.loaded_context_length)} of ${fmtCtx(m.max_context_length)}`;
+  else if (loadedNow && m.loaded_context_length != null)
+    ctx = `ctx ${fmtCtx(m.loaded_context_length)}`;
+  else if (m.max_context_length != null)
+    ctx = `max ctx ${fmtCtx(m.max_context_length)}`;
+  const parts = [m.quantization || null,
+    m.size_bytes != null ? fmtBytes(m.size_bytes) : null, ctx].filter(Boolean);
+  return parts.length ? parts.join(" · ") : null;
+}
+function findLm(models, key) {
+  const list = (models || []).filter(m => m && typeof m === "object");
+  return list.find(m => m.id === key) ||
+    list.find(m => String(m.id || "").split("/").pop() === String(key || "").split("/").pop()) || null;
+}
+/** Overview LM Studio rows: every model with its detail line, loaded
+ * first, capped like the apps (8 + a "+N more" row). */
+function lmOverviewRows(lms) {
+  const models = (lms.models || []).filter(m => m && typeof m === "object");
+  if (!models.length) return "";
+  const ordered = [...models.filter(m => m.state === "loaded"),
+    ...models.filter(m => m.state !== "loaded")];
+  let out = ordered.slice(0, 8).map(m => {
+    const det = lmDetail(m, m.state === "loaded");
+    return row(m.id || m.name || "?", det ? esc(det) : (m.state === "loaded" ? "loaded" : "—"));
+  }).join("");
+  if (ordered.length > 8) out += row("Library", `+${ordered.length - 8} more models`);
+  return out;
+}
+
+/* ---------- grow (CannaAI) + SystemOne side cards ---------- */
+/* Both cards are created on first data and live outside the static
+ * markup: Grow renders only while CannaAI answers reachable, and the
+ * SystemOne card only once its endpoint has answered at all — an
+ * older bridge simply never grows them. */
+function relTs(v) {
+  if (v == null) return null;
+  if (typeof v === "number") return v;
+  return isoTs(v);
+}
+let growCard = null;
+function renderGrow(c) {
+  if (!c || !c.reachable) {
+    if (growCard) { growCard.remove(); growCard = null; }
+    return;
+  }
+  if (!growCard) {
+    growCard = document.createElement("section");
+    growCard.className = "card s4";
+    growCard.dataset.views = "ov";
+    growCard.innerHTML = `<h2>Grow — CannaAI <span class="right" id="growChip"></span></h2>` +
+      `<div class="rows" id="growRows"></div><div id="growExtra"></div>`;
+    const anchor = $("dbWarmChips").closest("section");
+    if (anchor) anchor.insertAdjacentElement("afterend", growCard);
+    else $("grid").appendChild(growCard);
+    growCard.style.display = currentView === "ov" ? "" : "none";
+  }
+  const st = String(c.status || "");
+  $("growChip").innerHTML = chip(st ? st.toUpperCase() : "UP", st === "ok" || !st ? "ok" : "warn");
+  $("growRows").innerHTML =
+    (c.sensors || []).map(s => {
+      const v = typeof s.value === "number" ? trimNum(s.value) : s.value;
+      return row(s.label || "", `${esc(v ?? "—")}${s.unit ? " " + esc(s.unit) : ""}`);
+    }).join("") +
+    row("AI providers up", esc(c.providers_up ?? "—"));
+  let extra = "";
+  const alerts = c.alerts || [];
+  if (alerts.length) {
+    extra += `<h2 style="margin-top:14px">Alerts</h2>` + alerts.map(a => {
+      const lv = String(a.level || "").toLowerCase();
+      const color = lv.includes("crit") || lv.includes("error") || lv.includes("high")
+        ? "var(--red)" : lv.includes("warn") ? "var(--amber)" : "var(--cyan)";
+      const t = relTs(a.at);
+      return `<div class="hrow"><span class="hdot" style="background:${color}"></span>` +
+        `<div class="am"><div>${esc(a.text || "")}</div></div>` +
+        (t ? `<span class="t">${esc(fmtAgo(t))}</span>` : "") + `</div>`;
+    }).join("");
+  }
+  const j = c.journal_latest;
+  if (j && j.text) {
+    const t = relTs(j.at);
+    extra += `<h2 style="margin-top:14px">Latest journal</h2>` +
+      `<div style="font-size:13px">${esc(j.text)}</div>` +
+      (t ? `<div style="color:var(--faint);font-size:12px;margin-top:2px">${esc(fmtAgo(t))}</div>` : "");
+  }
+  $("growExtra").innerHTML = extra;
+}
+
+let sysoneCard = null;
+function renderSystemOne(so) {
+  if (!so) return;
+  if (!sysoneCard) {
+    sysoneCard = document.createElement("section");
+    sysoneCard.className = "card s4";
+    sysoneCard.dataset.views = "sys";
+    sysoneCard.innerHTML = `<h2>SystemOne <span class="right" id="sysoneChip"></span></h2>` +
+      `<div class="rows" id="sysoneRows"></div>`;
+    $("grid").appendChild(sysoneCard);
+    sysoneCard.style.display = currentView === "sys" ? "" : "none";
+  }
+  $("sysoneChip").innerHTML = chip(so.reachable ? "UP" : "NOT RUNNING", so.reachable ? "ok" : "bad");
+  $("sysoneRows").innerHTML =
+    row("Metrics endpoint", so.metrics_ok ? "ok" : "down") +
+    row("HTTP shim", so.shim_up ? "up" : "down") +
+    (so.reachable && so.decisions_total != null
+      ? row("Lifetime decisions", fmtInt(so.decisions_total)) : "");
+}
+
+/* ---------- actions (the one write surface) ---------- */
+/* Mirrors the apps' Actions tab: state from GET /api/actions, fetched
+ * when the tab opens and refreshed while it is visible — never on the
+ * main stats poll. Every button goes through the confirm dialog
+ * first; one action at a time; the bridge's answer lands inline under
+ * its section, and its ledger shows under Recent activity. */
+let actionsData = null, actionsLmModels = [], actionBusy = null, actionsFetching = false;
+
+function actionLabel(action) {
+  const map = { lm_load: "Load model", lm_unload: "Unload model",
+    darkbloom_restart: "Restart Darkbloom", miner_start: "Start miner",
+    miner_stop: "Stop miner", bridge_restart: "Restart bridge" };
+  if (map[action]) return map[action];
+  const s = String(action || "").replace(/_/g, " ");
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+function isBusy(action, target) {
+  return !!actionBusy && actionBusy.action === action &&
+    (target == null || actionBusy.target === target);
+}
+async function fetchActions() {
+  if (actionsFetching) return;
+  actionsFetching = true;
+  try {
+    const [ra, rl] = await Promise.all([
+      fetch("/api/actions", { cache: "no-store" }),
+      fetch("/api/lmstudio", { cache: "no-store" })]);
+    if (rl.ok) { const j = await rl.json(); actionsLmModels = (j.lmstudio || j).models || []; }
+    if (ra.ok) { actionsData = await ra.json(); renderActions(); }
+    else if (!actionsData) renderActionsError(`Bridge returned HTTP ${ra.status} for actions.`);
+  } catch (e) {
+    if (!actionsData) renderActionsError("Can't reach the bridge for actions.");
+  }
+  actionsFetching = false;
+}
+function renderActionsError(msg) {
+  $("actLmLoaded").innerHTML =
+    `<div class="note" style="margin-top:2px">${esc(msg)}</div>` +
+    `<div style="margin-top:10px"><button id="actRetry">Retry</button></div>`;
+  const b = $("actRetry");
+  if (b) b.addEventListener("click", fetchActions);
+}
+function renderActions() {
+  const d = actionsData;
+  if (!d) return;
+  const lm = d.lmstudio || {}, loaded = lm.loaded || [], avail = lm.available || [];
+  const anyBusy = !!actionBusy;
+  $("actLmChips").innerHTML = chip(`${loaded.length} LOADED`, loaded.length ? "ok" : "");
+  $("actLmLoaded").innerHTML = loaded.length ? loaded.map(m => {
+    const det = lmDetail(findLm(actionsLmModels, m.identifier), true);
+    return `<div class="arow"><div class="am"><div class="an">${esc(m.identifier)}</div>` +
+      (det ? `<div class="ad">${esc(det)}</div>` : "") +
+      `</div><button data-act="lm_unload" data-target="${esc(m.identifier)}"${anyBusy ? " disabled" : ""}>${isBusy("lm_unload", m.identifier) ? "Unloading…" : "Unload"}</button></div>`;
+  }).join("") : '<div class="rows"><div class="row"><span class="k">No models loaded</span></div></div>';
+  $("actLmAvail").innerHTML = avail.length ? avail.map(m => {
+    const det = lmDetail(findLm(actionsLmModels, m.key), false) || m.size;
+    return `<div class="arow"><div class="am"><div class="an">${esc(m.key)}</div>` +
+      (det ? `<div class="ad">${esc(det)}</div>` : "") +
+      `</div><button class="btnPrimary" data-act="lm_load" data-target="${esc(m.key)}"${anyBusy ? " disabled" : ""}>${isBusy("lm_load", m.key) ? "Loading…" : "Load"}</button></div>`;
+  }).join("") : '<div class="rows"><div class="row"><span class="k">Library unavailable</span></div></div>';
+  document.querySelectorAll("#actLmLoaded button[data-act], #actLmAvail button[data-act]")
+    .forEach(b => b.addEventListener("click", () => askLmAction(b.dataset.act, b.dataset.target)));
+
+  const dbRun = !!(d.darkbloom || {}).running;
+  $("actDbChips").innerHTML = chip(dbRun ? "RUNNING" : "NOT RUNNING", dbRun ? "ok" : "bad");
+  $("actDbRows").innerHTML = row("Provider", dbRun ? "Running" : "Not running");
+  const dbBtn = $("actDbRestart");
+  dbBtn.disabled = anyBusy;
+  dbBtn.textContent = isBusy("darkbloom_restart") ? "Restarting…" : "Restart Darkbloom";
+
+  const mineRun = !!(d.mining || {}).miner_running;
+  $("actMineChips").innerHTML = chip(mineRun ? "MINER RUNNING" : "MINER STOPPED", mineRun ? "ok" : "bad");
+  $("actMineRows").innerHTML = row("Miner", mineRun ? "Running" : "Stopped");
+  const startBtn = $("actMinerStart"), stopBtn = $("actMinerStop");
+  startBtn.disabled = anyBusy || mineRun;
+  startBtn.textContent = isBusy("miner_start") ? "Starting…" : "Start miner";
+  stopBtn.disabled = anyBusy || !mineRun;
+  stopBtn.textContent = isBusy("miner_stop") ? "Stopping…" : "Stop miner";
+
+  $("actBridgeRows").innerHTML = row("Bridge version", esc((d.bridge || {}).version || "—"));
+  const brBtn = $("actBridgeRestart");
+  brBtn.disabled = anyBusy;
+  brBtn.textContent = isBusy("bridge_restart") ? "Restarting…" : "Restart bridge";
+
+  const hist = (d.history || []).slice(0, 12);
+  $("actHistCard").style.display = hist.length && currentView === "actions" ? "" : "none";
+  $("actHistory").innerHTML = hist.map(h => `
+    <div class="hrow"><span class="hdot" style="background:${h.ok ? "var(--green)" : "var(--red)"}"></span>
+    <div class="am"><div class="an2">${esc(actionLabel(h.action))}${h.target ? ` · ${esc(h.target)}` : ""}</div>
+    ${h.message ? `<div class="ad"${h.ok ? "" : ' style="color:var(--red)"'}>${esc(h.message)}</div>` : ""}</div>
+    <span class="t">${esc(fmtAgo(h.ts))}</span></div>`).join("");
+}
+
+/* The confirm dialog — same copy as the apps, nothing fires until
+ * its confirm button turns the pending intent into a POST. */
+let pendingAction = null;
+function askAction(p) {
+  pendingAction = p;
+  $("confirmTitle").textContent = p.title;
+  $("confirmBody").textContent = p.body;
+  $("confirmOk").textContent = p.confirmLabel;
+  $("confirmWrap").classList.add("open");
+}
+function closeConfirm() {
+  pendingAction = null;
+  $("confirmWrap").classList.remove("open");
+}
+function askLmAction(action, target) {
+  if (action === "lm_unload") askAction({ action, target,
+    title: `Unload ${target}?`,
+    body: "This frees the model's memory on the Mac. Anything using it — Hermes, local chat — loses access until it's loaded again.",
+    confirmLabel: "Unload" });
+  else askAction({ action, target,
+    title: `Load ${target}?`,
+    body: "Loading a model can use a lot of memory on the Mac, and a cold load can take several minutes. The button stays busy until the bridge answers.",
+    confirmLabel: "Load" });
+}
+const ACTION_RESULT_EL = { lm_load: "actResLm", lm_unload: "actResLm",
+  darkbloom_restart: "actResDb", miner_start: "actResMine",
+  miner_stop: "actResMine", bridge_restart: "actResBridge" };
+async function performAction(p) {
+  if (actionBusy) return;
+  actionBusy = { action: p.action, target: p.target || null };
+  renderActions();
+  let result = null;
+  try {
+    const r = await fetch("/api/action", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(p.target ? { action: p.action, target: p.target } : { action: p.action }),
+    });
+    const j = await r.json().catch(() => null);
+    // The contract answers errors as JSON too — an "error" field
+    // means failure whatever "ok" claims (same rule as the apps).
+    if (j) result = { ok: !j.error && !!j.ok, message: j.error || j.message || "Done." };
+    else result = { ok: false, message: `Bridge returned HTTP ${r.status}` };
+  } catch (e) {
+    // A bridge restart kills the bridge mid-answer; the dropped
+    // connection is the expected shape of success there.
+    result = p.action === "bridge_restart"
+      ? { ok: true, message: "Bridge restarting — reconnecting…" }
+      : { ok: false, message: "Can't reach the bridge." };
+  }
+  actionBusy = null;
+  const resEl = $(ACTION_RESULT_EL[p.action]);
+  if (resEl) {
+    resEl.textContent = result.message;
+    resEl.className = "aresult " + (result.ok ? "ok" : "bad");
+  }
+  renderActions();
+  if (p.action === "bridge_restart") await waitForBridge();
+  fetchActions();
+}
+async function waitForBridge() {
+  for (let i = 0; i < 15; i++) {
+    try { const r = await fetch("/api/health", { cache: "no-store" }); if (r.ok) return; }
+    catch (e) { /* still down */ }
+    await new Promise(res => setTimeout(res, 2000));
+  }
+}
+$("confirmCancel").addEventListener("click", closeConfirm);
+$("confirmOk").addEventListener("click", () => {
+  const p = pendingAction;
+  closeConfirm();
+  if (p) performAction(p);
+});
+$("confirmWrap").addEventListener("click", e => { if (e.target === $("confirmWrap")) closeConfirm(); });
+$("actDbRestart").addEventListener("click", () => askAction({ action: "darkbloom_restart",
+  title: "Restart Darkbloom?",
+  body: "Serving interrupts briefly while the provider restarts; it comes back on its own. Earnings pause only for the restart itself.",
+  confirmLabel: "Restart" }));
+$("actMinerStart").addEventListener("click", () => askAction({ action: "miner_start",
+  title: "Start the miner?",
+  body: "Starts the miner on Batman-3. The GPU draws full power while it runs.",
+  confirmLabel: "Start" }));
+$("actMinerStop").addEventListener("click", () => askAction({ action: "miner_stop",
+  title: "Stop the miner?",
+  body: "Mining earnings halt while the miner is off.",
+  confirmLabel: "Stop" }));
+$("actBridgeRestart").addEventListener("click", () => askAction({ action: "bridge_restart",
+  title: "Restart the bridge?",
+  body: "The dashboard drops for a few seconds while the bridge restarts, then reconnects on its own.",
+  confirmLabel: "Restart" }));
+
 /* ---------- views / tabs ---------- */
 let currentView = "ov";
 function redrawDataCharts() {
@@ -1270,6 +1677,7 @@ function setView(v) {
     c.style.display = views.includes(v) ? "" : "none";
   });
   if (v === "events") { newSinceOpen.clear(); $("evtBadge").style.display = "none"; renderDecisions(); }
+  if (v === "actions") fetchActions();
   try { history.replaceState(null, "", "#" + v); } catch (e) {}
   redrawDataCharts();
   drawCharts();
@@ -1344,7 +1752,7 @@ document.addEventListener("visibilitychange", () => {
 document.addEventListener("keydown", e => {
   if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
   if (e.ctrlKey || e.metaKey || e.altKey) return;
-  const views = ["ov", "sys", "db", "mining", "earn", "win", "events", "console"];
+  const views = ["ov", "sys", "db", "mining", "earn", "actions", "win", "events", "console"];
   const vi = Number(e.key) - 1;
   if (e.key >= "1" && e.key <= "9" && vi < views.length) setView(views[vi]);
   else if (e.key === "r" || e.key === "R") tick();
@@ -1361,7 +1769,7 @@ window.addEventListener("resize", () => {
 initGauges();
 renderCommands();
 const hv = location.hash.replace("#", "");
-const VIEW_KEYS = ["ov", "sys", "db", "mining", "earn", "win", "events", "console"];
+const VIEW_KEYS = ["ov", "sys", "db", "mining", "earn", "actions", "win", "events", "console"];
 // The old "all" view was merged into Overview — #all (and anything
 // unrecognized) falls back to Overview rather than a blank page.
 setView(VIEW_KEYS.includes(hv) ? hv : "ov");
