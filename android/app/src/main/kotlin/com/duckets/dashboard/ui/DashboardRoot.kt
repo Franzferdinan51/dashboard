@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.Dashboard
+import androidx.compose.material.icons.filled.Eco
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MonetizationOn
@@ -84,6 +85,7 @@ import com.duckets.dashboard.ui.components.PulseDot
 import com.duckets.dashboard.ui.screens.ActionsScreen
 import com.duckets.dashboard.ui.screens.DarkbloomScreen
 import com.duckets.dashboard.ui.screens.EarningsScreen
+import com.duckets.dashboard.ui.screens.GrowScreen
 import com.duckets.dashboard.ui.screens.MiningScreen
 import com.duckets.dashboard.ui.screens.OverviewScreen
 import com.duckets.dashboard.ui.screens.SettingsScreen
@@ -99,6 +101,7 @@ enum class Tab(val label: String, val icon: ImageVector) {
     Mining("Mining", Icons.Filled.Bolt),
     Earnings("Earnings", Icons.Filled.AccountBalanceWallet),
     Actions("Actions", Icons.Filled.PlayArrow),
+    Grow("Grow", Icons.Filled.Eco),
     Windows("Windows", Icons.Filled.Computer),
     Settings("Settings", Icons.Filled.Settings),
 }
@@ -111,7 +114,7 @@ fun DashboardRoot(windowSizeClass: WindowSizeClass) {
     var tabName by rememberSaveable { mutableStateOf(Tab.Overview.name) }
     val tab = runCatching { Tab.valueOf(tabName) }.getOrDefault(Tab.Overview)
     // Portrait phone nav: a slim bar (current section + Menu) and a
-    // hamburger sheet with every destination — eight items in a bottom
+    // hamburger sheet with every destination — nine items in a bottom
     // bar was too crowded to read or tap.
     var menuOpen by remember { mutableStateOf(false) }
 
@@ -144,6 +147,7 @@ fun DashboardRoot(windowSizeClass: WindowSizeClass) {
     val miningListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
     val earningsListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
     val actionsListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
+    val growListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
     val windowsListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
     val settingsListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
 
@@ -211,7 +215,7 @@ fun DashboardRoot(windowSizeClass: WindowSizeClass) {
                         containerColor = androidx.compose.ui.graphics.Color.Transparent,
                         modifier = Modifier.padding(top = 8.dp),
                     ) {
-                        // Eight destinations overflow short landscape
+                        // Nine destinations overflow short landscape
                         // screens (720dp phones): the rail scrolls.
                         Column(
                             Modifier.verticalScroll(rememberScrollState()),
@@ -251,6 +255,7 @@ fun DashboardRoot(windowSizeClass: WindowSizeClass) {
                             Tab.Mining -> MiningScreen(state, columns, onRefresh = { vm.refreshNow() }, listState = miningListState)
                             Tab.Earnings -> EarningsScreen(state, columns, onRefresh = { vm.refreshNow() }, listState = earningsListState)
                             Tab.Actions -> ActionsScreen(state, vm, columns, listState = actionsListState)
+                            Tab.Grow -> GrowScreen(state, columns, onRefresh = { vm.refreshNow() }, listState = growListState)
                             Tab.Windows -> WindowsScreen(state, columns, onRefresh = { vm.refreshNow() }, listState = windowsListState)
                             Tab.Settings -> SettingsScreen(state, vm, columns, listState = settingsListState)
                         }

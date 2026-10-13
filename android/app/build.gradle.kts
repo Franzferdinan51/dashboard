@@ -14,10 +14,10 @@ android {
         applicationId = "com.duckets.dashboard"
         minSdk = 26
         targetSdk = 36
-        versionCode = 19
+        versionCode = 20
         // App and bridge version independently (bridge: BRIDGE_VERSION in
         // bridge/dashboard_bridge.py). Bump each only when it changes.
-        versionName = "1.8.0"
+        versionName = "1.9.0"
 
         // Default bridge address. Override per-machine (never committed) by
         // putting dashboard.bridgeUrl=<url> in android/local.properties.

@@ -420,6 +420,11 @@ data class CannaAiData(
     val journalText: String? = null,
     val journalAt: String? = null,
     val providersUp: Boolean? = null,
+    // Bridge 1.12+: the Grow tab's depth — the analysis history and the
+    // per-provider list behind the providers_up count.
+    val history: List<GrowAnalysis> = emptyList(),
+    val providers: List<GrowProvider> = emptyList(),
+    val providersUpCount: Int? = null,
 )
 
 data class GrowSensor(
@@ -432,6 +437,25 @@ data class GrowAlert(
     val text: String = "",
     val level: String? = null,
     val at: String? = null,
+    val atEpochSec: Double? = null,
+)
+
+/** One PlantAnalysis entry from CannaAI's history (bridge 1.12+):
+ * [text] is the diagnosis headline; [atEpochSec] the analysis time. */
+data class GrowAnalysis(
+    val text: String? = null,
+    val strain: String? = null,
+    val confidence: Double? = null,
+    val healthScore: Double? = null,
+    val notes: String? = null,
+    val atEpochSec: Double? = null,
+)
+
+/** One AI provider behind CannaAI (bridge 1.12+): a name and its raw
+ * status string ("available", "healthy", …), rendered verbatim. */
+data class GrowProvider(
+    val name: String = "",
+    val status: String? = null,
 )
 
 data class SystemOneData(

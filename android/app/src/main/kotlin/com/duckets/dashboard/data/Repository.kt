@@ -771,10 +771,53 @@ private fun parseCannaAi(c: JSONObject): CannaAiData {
                         text = al.str("text") ?: "",
                         level = al.str("level"),
                         at = al.str("at"),
+                        atEpochSec = al.epochFlexible("at"),
                     )
                 )
             }
         }
+    }
+    // Bridge 1.12+: analysis history (newest first, max 20) and the
+    // per-provider list. Both absent on older bridges — empty lists
+    // just leave the Grow tab on its honest empty states.
+    val history = buildList {
+        c.arr("history")?.let { a ->
+            for (i in 0 until a.length()) {
+                val e = a.optJSONObject(i) ?: continue
+                add(
+                    GrowAnalysis(
+                        text = e.str("text"),
+                        strain = e.str("strain"),
+                        confidence = e.dbl("confidence"),
+                        healthScore = e.dbl("health_score"),
+                        notes = e.str("notes"),
+                        atEpochSec = e.epochFlexible("at"),
+                    )
+                )
+            }
+        }
+    }
+    val providers = buildList {
+        c.arr("providers")?.let { a ->
+            for (i in 0 until a.length()) {
+                val p = a.optJSONObject(i) ?: continue
+                add(
+                    GrowProvider(
+                        name = p.str("name") ?: p.str("id") ?: "provider",
+                        status = p.str("status"),
+                    )
+                )
+            }
+        }
+    }
+    // providers_up is a COUNT on the wire (an older read of it as a
+    // boolean survives above for the Overview glance card) — coerce
+    // either shape so the Grow tab can summarize it.
+    val providersUpCount = when (val v =
+        if (c.has("providers_up") && !c.isNull("providers_up")) c.opt("providers_up") else null) {
+        is Number -> v.toInt()
+        is Boolean -> if (v) 1 else 0
+        else -> null
     }
     val journal = c.obj("journal_latest")
     return CannaAiData(
@@ -784,7 +827,10 @@ private fun parseCannaAi(c: JSONObject): CannaAiData {
         alerts = alerts,
         journalText = journal?.str("text"),
         journalAt = journal?.str("at"),
-        providersUp = c.bool("providers_up"),
+        providersUp = providersUpCount?.let { it > 0 },
+        history = history,
+        providers = providers,
+        providersUpCount = providersUpCount,
     )
 }
 
