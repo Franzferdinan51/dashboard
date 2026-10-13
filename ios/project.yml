@@ -10,6 +10,9 @@ targets:
     platform: iOS
     sources:
       - Dashboard
+    dependencies:
+      - target: DashboardWidget
+        embed: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.duckets.dashboard
@@ -18,11 +21,14 @@ targets:
         TARGETED_DEVICE_FAMILY: "1,2"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CURRENT_PROJECT_VERSION: 1
-        MARKETING_VERSION: "1.0.0"
+        MARKETING_VERSION: "1.1.0"
     info:
       path: Dashboard/Info.plist
       properties:
         CFBundleDisplayName: Dashboard
+        # XcodeGen writes a literal "1.0" here by default — pin it so
+        # the built app actually reports the MARKETING_VERSION.
+        CFBundleShortVersionString: "1.1.0"
         UILaunchScreen: {}
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
@@ -34,3 +40,28 @@ targets:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
+  DashboardWidget:
+    type: app-extension
+    platform: iOS
+    sources:
+      - DashboardWidget
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.duckets.dashboard.widget
+        PRODUCT_NAME: DashboardWidget
+        SWIFT_VERSION: "5.9"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        CURRENT_PROJECT_VERSION: 1
+        MARKETING_VERSION: "1.1.0"
+    info:
+      path: DashboardWidget/Info.plist
+      properties:
+        CFBundleDisplayName: Dashboard
+        CFBundleShortVersionString: "1.1.0"
+        # The widget fetches the bridge itself (no App Group / shared
+        # defaults with the app), so it needs the same cleartext
+        # exception for the owner's own tailnet/LAN bridge.
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
