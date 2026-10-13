@@ -164,9 +164,9 @@ struct WindowsView: View {
     }
 
     private func avgText(_ w: WindowsData) -> String {
-        let parts = [w.minerAvg15mThs, w.minerAvg1hThs, w.minerAvg6hThs]
-            .map { $0.map { "\($0)" } ?? "—" }
-        return parts.joined(separator: " / ") + " TH/s"
+        [w.minerAvg15mThs, w.minerAvg1hThs, w.minerAvg6hThs]
+            .map { fmtThs($0) }
+            .joined(separator: " / ")
     }
 
     private func sharesText(_ w: WindowsData) -> String {
