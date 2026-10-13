@@ -1351,12 +1351,26 @@ struct CannaaiData {
     /// count, depending on the bridge build; both decode attempts run.
     var providersUp: Bool? = nil
     var providersUpCount: Int? = nil
+    /// CannaAI's own component checklist (bridge 1.13+): what the
+    /// rolled-up status word is made of — DEGRADED stops being a
+    /// shrug when the rows say "openclaw: unreachable". Absent on
+    /// older bridges.
+    var components: [CannaComponent]? = nil
+    /// Live grow environment from the AC Infinity app on the Moto G
+    /// desk phone, harvested by the bridge (bridge 1.13+). This is
+    /// the real sensor story — CannaAI's own sensor table is empty.
+    /// nil when the bridge has no harvest (older bridge, phone away).
+    var environment: GrowEnvironment? = nil
+    /// Photo-analysis pipeline state (bridge 1.13+): whether an
+    /// uploaded plant photo is currently being analyzed, and the
+    /// last failure if one died.
+    var analyze: CannaAnalyzeState? = nil
 }
 
 extension CannaaiData: Decodable {
     enum CodingKeys: String, CodingKey {
         case reachable, status, sensors, alerts, journalLatest, providersUp,
-             history, providers
+             history, providers, components, environment, analyze
     }
 
     init(from decoder: Decoder) throws {
@@ -1372,6 +1386,162 @@ extension CannaaiData: Decodable {
         providers = c.tolerant(LossyArray<CannaProvider>.self, forKey: .providers)?.elements
         providersUp = c.tolerant(Bool.self, forKey: .providersUp)
         providersUpCount = c.tolerant(Int.self, forKey: .providersUp)
+        components = c.tolerant(LossyArray<CannaComponent>.self, forKey: .components)?.elements
+        environment = c.tolerant(GrowEnvironment.self, forKey: .environment)
+        analyze = c.tolerant(CannaAnalyzeState.self, forKey: .analyze)
+    }
+}
+
+/// One line of CannaAI's health checklist (bridge 1.13+): a component
+/// name, its status word ("ok", "unreachable", "unconfigured", …),
+/// and an optional detail the Grow tab shows under the status card.
+struct CannaComponent {
+    var name: String? = nil
+    var status: String? = nil
+    var detail: String? = nil
+}
+
+extension CannaComponent: Decodable {
+    enum CodingKeys: String, CodingKey { case name, status, detail }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = c.tolerant(String.self, forKey: .name).nilIfBlank
+        status = c.tolerant(String.self, forKey: .status).nilIfBlank
+        detail = c.tolerant(String.self, forKey: .detail).nilIfBlank
+    }
+}
+
+/// The AC Infinity environment snapshot (bridge 1.13+): when the
+/// bridge last harvested the Moto G's AC Infinity app, what each
+/// controller reported, and any alerts the app surfaced.
+struct GrowEnvironment {
+    var fetchedAt: FlexibleTime = FlexibleTime()
+    var devices: [EnvDevice] = []
+    var alerts: [EnvAlert] = []
+}
+
+extension GrowEnvironment: Decodable {
+    enum CodingKeys: String, CodingKey { case fetchedAt, devices, alerts }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        fetchedAt = c.flexibleTime(forKey: .fetchedAt)
+        devices = c.lossyArray(EnvDevice.self, forKey: .devices)
+        alerts = c.lossyArray(EnvAlert.self, forKey: .alerts)
+    }
+}
+
+/// One AC Infinity controller (a tent): inside/outside climate
+/// readings plus its outlet ports. Any reading may be missing —
+/// the Clone Chamber's probe reads dashes when it's off.
+struct EnvDevice {
+    var name: String? = nil
+    var id: String? = nil
+    var inside: EnvReading? = nil
+    var outside: EnvReading? = nil
+    var ports: [EnvPort] = []
+}
+
+extension EnvDevice: Decodable {
+    enum CodingKeys: String, CodingKey { case name, id, inside, outside, ports }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = c.tolerant(String.self, forKey: .name).nilIfBlank
+        id = c.tolerant(String.self, forKey: .id).nilIfBlank
+        inside = c.tolerant(EnvReading.self, forKey: .inside)
+        outside = c.tolerant(EnvReading.self, forKey: .outside)
+        ports = c.lossyArray(EnvPort.self, forKey: .ports)
+    }
+}
+
+/// One climate reading set: temperature °F, relative humidity %,
+/// VPD kPa — each independently nullable (a dead probe nulls its
+/// own numbers, not the whole set).
+struct EnvReading {
+    var tempF: Double? = nil
+    var rh: Double? = nil
+    var vpdKpa: Double? = nil
+}
+
+extension EnvReading: Decodable {
+    enum CodingKeys: String, CodingKey { case tempF, rh, vpdKpa }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        tempF = c.tolerant(Double.self, forKey: .tempF)
+        rh = c.tolerant(Double.self, forKey: .rh)
+        vpdKpa = c.tolerant(Double.self, forKey: .vpdKpa)
+    }
+}
+
+/// One controller outlet: a name ("Grow Light"), its mode word
+/// ("AI", "OFF", …) and level (0–10) when it has one.
+struct EnvPort {
+    var name: String? = nil
+    var mode: String? = nil
+    var level: Int? = nil
+}
+
+extension EnvPort: Decodable {
+    enum CodingKeys: String, CodingKey { case name, mode, level }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = c.tolerant(String.self, forKey: .name).nilIfBlank
+        mode = c.tolerant(String.self, forKey: .mode).nilIfBlank
+        if let i = c.tolerant(Int.self, forKey: .level) {
+            level = i
+        } else if let d = c.tolerant(Double.self, forKey: .level), d.isFinite {
+            level = Int(d.rounded())
+        }
+    }
+}
+
+/// An alert from the AC Infinity side. The harvester's field names
+/// aren't CannaAI's, so text/level accept their alternates
+/// (message/severity, created_at) rather than dropping the alert.
+struct EnvAlert {
+    var text: String = ""
+    var level: String? = nil
+    var at: FlexibleTime = FlexibleTime()
+}
+
+extension EnvAlert: Decodable {
+    enum CodingKeys: String, CodingKey {
+        case text, message, level, severity, at, createdAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        text = (c.tolerant(String.self, forKey: .text).nilIfBlank
+            ?? c.tolerant(String.self, forKey: .message).nilIfBlank) ?? ""
+        level = c.tolerant(String.self, forKey: .level).nilIfBlank
+            ?? c.tolerant(String.self, forKey: .severity).nilIfBlank
+        var t = c.flexibleTime(forKey: .at)
+        if t.isEmpty { t = c.flexibleTime(forKey: .createdAt) }
+        at = t
+    }
+}
+
+/// Photo-analysis pipeline state (bridge 1.13+): pending while the
+/// vision model works on an uploaded photo; lastError carries the
+/// most recent failure's words when one died.
+struct CannaAnalyzeState {
+    var pending: Bool = false
+    var startedAt: FlexibleTime = FlexibleTime()
+    var lastError: String? = nil
+}
+
+extension CannaAnalyzeState: Decodable {
+    enum CodingKeys: String, CodingKey { case pending, startedAt, lastError }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        pending = c.tolerant(Bool.self, forKey: .pending) ?? false
+        startedAt = c.flexibleTime(forKey: .startedAt)
+        lastError = c.tolerant(String.self, forKey: .lastError).nilIfBlank
     }
 }
 
