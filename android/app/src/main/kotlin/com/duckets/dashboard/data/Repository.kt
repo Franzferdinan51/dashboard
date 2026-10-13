@@ -204,6 +204,23 @@ private fun JSONObject.intOrNull(key: String): Int? =
 private fun JSONObject.bool(key: String): Boolean? =
     if (has(key) && !isNull(key)) optBoolean(key) else null
 
+/** A value the bridge serves pre-formatted for display (e.g.
+ * stats.usage_gaps): strings pass through, numbers render without a
+ * trailing ".0", anything structured reads as absent — never dump
+ * raw JSON into a row. */
+private fun JSONObject.displayStr(key: String): String? {
+    if (!has(key) || isNull(key)) return null
+    return when (val v = opt(key)) {
+        is String -> v.ifBlank { null }
+        is Number -> {
+            val d = v.toDouble()
+            if (d.isFinite() && d == d.toLong().toDouble()) d.toLong().toString() else d.toString()
+        }
+        is Boolean -> v.toString()
+        else -> null
+    }
+}
+
 /** Epoch seconds from a value that may be a number (seconds or millis)
  * or an ISO-8601 string — Daemon-written timestamps don't promise one
  * shape (the bridge passes darkbloom's session_expires_at through raw). */
@@ -398,13 +415,17 @@ private fun parseDarkbloom(db: JSONObject): DarkbloomStats {
         trustPath = trust.str("path"),
         trustSessionExpiresAtEpochSec = trust.epochFlexible("session_expires_at"),
         earning = db.bool("earning") ?: false,
+        lastCreditAtEpochSec = db.epochFlexible("last_credit_at"),
         verificationPending = db.bool("verification_pending") ?: true,
         requestsServed = stats.lng("requests_served"),
         tokensGenerated = stats.lng("tokens_generated"),
+        usageGaps = stats.displayStr("usage_gaps"),
         capacityTotalGb = cap.dbl("total_memory_gb"),
         gpuActiveGb = cap.dbl("gpu_active_gb"),
         gpuCacheGb = cap.dbl("gpu_cache_gb"),
         freeForLoadGb = cap.dbl("free_for_load_gb"),
+        capacityLoadUsableGb = cap.dbl("load_usable_gb"),
+        capacityLoadHeadroomGb = cap.dbl("load_headroom_gb"),
         warmModels = warm,
         advertisedModels = advertised,
         slots = slots,
@@ -412,9 +433,13 @@ private fun parseDarkbloom(db: JSONObject): DarkbloomStats {
         autopilotPhase = autopilot.str("phase"),
         autopilotEnabled = autopilot.bool("enabled"),
         autopilotObserveOnly = autopilot.bool("observe_only"),
+        autopilotPaused = autopilot.bool("paused"),
+        autopilotMaxModelSlots = autopilot.intOrNull("max_model_slots"),
         attestAttested = attest.bool("attested"),
         attestKeyAgeSeconds = attest.lng("key_age_seconds"),
         attestLastSuccessAgeSeconds = attest.lng("last_success_age_seconds"),
+        attestGenerationsLast24h = attest.lng("generations_last_24h"),
+        attestConsecutiveFailures = attest.lng("consecutive_failures"),
         earnings = db.obj("earnings")?.let { parseEarnings(it) },
     )
 }
@@ -431,15 +456,15 @@ private fun parseEarnings(e: JSONObject): Earnings {
         }
     }.sortedByDescending { it.microUsd }
 
-    val recent = buildList {
-        e.arr("recent")?.let { a ->
+    // Money stays in integer micro-USD end to end; no floating-point
+    // currency anywhere in the pipeline.
+    fun entries(key: String): List<EarningEntry> = buildList {
+        e.arr(key)?.let { a ->
             for (i in 0 until a.length()) {
                 val r = a.optJSONObject(i) ?: continue
                 add(
                     EarningEntry(
                         model = r.str("model") ?: "",
-                        // Money stays in integer micro-USD end to end; no
-                        // floating-point currency anywhere in the pipeline.
                         amountMicroUsd = r.lng("amount_micro_usd") ?: 0,
                         promptTokens = r.lng("prompt_tokens"),
                         completionTokens = r.lng("completion_tokens"),
@@ -455,9 +480,11 @@ private fun parseEarnings(e: JSONObject): Earnings {
         withdrawableUsd = e.str("withdrawable_usd"),
         totalUsd = e.str("total_usd"),
         jobsInHistory = e.intOrNull("jobs_in_history"),
+        lastCreditAtEpochSec = e.epochFlexible("last_credit_at"),
         baseRewardsMicroRecent = e.lng("base_rewards_micro_usd_recent") ?: 0,
         perModel = perModel,
-        recent = recent,
+        recent = entries("recent"),
+        history = entries("history"),
         estimates = e.obj("estimates")?.let { s ->
             val split = s.obj("split")
             val serving = s.obj("serving")
@@ -584,6 +611,8 @@ private fun parseMining(m: JSONObject): MiningData {
                 sampleCount = it.intOrNull("sample_count"),
                 avgActiveThs = it.dbl("avg_active_ths"),
                 avgOverallThs = it.dbl("avg_overall_ths"),
+                avg24hOverallThs = it.dbl("avg_24h_overall_ths"),
+                win24SpanHours = it.dbl("win24_span_hours"),
                 uptimeFraction = it.dbl("uptime_fraction"),
                 realizedPrlEst = it.dbl("realized_prl_est"),
                 realizedUsdNetEst = it.dbl("realized_usd_net_est"),
@@ -806,6 +835,7 @@ private fun parseWindows(w: JSONObject): WindowsData {
     return WindowsData(
         reachable = true,
         stale = w.bool("stale") ?: false,
+        fetchedAtEpochSec = w.dbl("fetched_at"),
         osName = w.str("os_name"),
         osVersion = w.str("os_version"),
         uptimeSeconds = w.lng("uptime_seconds"),

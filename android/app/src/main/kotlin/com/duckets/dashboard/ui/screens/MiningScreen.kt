@@ -154,6 +154,15 @@ private fun HistoryCard(h: BatmanHistory) {
             KeyValueRow("Coverage", "${fmtClock(h.coverageFromEpochSec)} → ${fmtClock(h.coverageToEpochSec)}")
             KeyValueRow("Average (active)", h.avgActiveThs?.let { "$it TH/s" } ?: "—")
             KeyValueRow("Average (overall)", h.avgOverallThs?.let { "$it TH/s" } ?: "—")
+            if (h.avg24hOverallThs != null) {
+                KeyValueRow(
+                    "24h overall avg",
+                    "${h.avg24hOverallThs} TH/s" +
+                        (h.win24SpanHours?.let { span ->
+                            " (over ${if (span % 1.0 == 0.0) "${span.toLong()}" else String.format(Locale.US, "%.1f", span)}h)"
+                        } ?: ""),
+                )
+            }
             KeyValueRow("Uptime in log",
                 h.uptimeFraction?.let { "${Math.round(it * 100)}%" } ?: "—")
             KeyValueRow("Realized in window",

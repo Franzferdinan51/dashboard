@@ -92,19 +92,30 @@ data class DarkbloomStats(
     val trustStatus: String? = null,
     val trustReason: String? = null,
     val trustPath: String? = null,
-    /** When the Darkbloom auth session ends (epoch seconds, parsed
-     * tolerantly from whatever the daemon wrote — ISO string or epoch).
-     * Past this point the provider silently stops earning until the
-     * session is refreshed, so the app surfaces it before it bites. */
+    /** Parsed for wire tolerance but intentionally NOT rendered:
+     * since bridge 1.11.1 this field is null by design — the daemon's
+     * expires_at is the App Attest token, which renews itself every
+     * few seconds, not the login session (see the bridge 1.11.1 note).
+     * The earning signal (lastCreditAt below) is the real
+     * dead-session detector. */
     val trustSessionExpiresAtEpochSec: Double? = null,
     val earning: Boolean = false,
+    /** Epoch seconds of the most recent ledger credit (paid job or
+     * base reward) — the dead-session heartbeat: when this goes stale
+     * while the provider claims to run, the session is dead. Mirrors
+     * earnings.lastCreditAtEpochSec; both ride the same bridge value. */
+    val lastCreditAtEpochSec: Double? = null,
     val verificationPending: Boolean = true,
     val requestsServed: Long? = null,
     val tokensGenerated: Long? = null,
+    /** Darkbloom's own usage-gap summary (display string, as served). */
+    val usageGaps: String? = null,
     val capacityTotalGb: Double? = null,
     val gpuActiveGb: Double? = null,
     val gpuCacheGb: Double? = null,
     val freeForLoadGb: Double? = null,
+    val capacityLoadUsableGb: Double? = null,
+    val capacityLoadHeadroomGb: Double? = null,
     val warmModels: List<String> = emptyList(),
     val advertisedModels: List<String> = emptyList(),
     val slots: List<SlotInfo> = emptyList(),
@@ -112,9 +123,13 @@ data class DarkbloomStats(
     val autopilotPhase: String? = null,
     val autopilotEnabled: Boolean? = null,
     val autopilotObserveOnly: Boolean? = null,
+    val autopilotPaused: Boolean? = null,
+    val autopilotMaxModelSlots: Int? = null,
     val attestAttested: Boolean? = null,
     val attestKeyAgeSeconds: Long? = null,
     val attestLastSuccessAgeSeconds: Long? = null,
+    val attestGenerationsLast24h: Long? = null,
+    val attestConsecutiveFailures: Long? = null,
     val earnings: Earnings? = null,
 )
 
@@ -138,9 +153,15 @@ data class Earnings(
     val withdrawableUsd: String? = null,
     val totalUsd: String? = null,
     val jobsInHistory: Int? = null,
+    /** Epoch seconds of the most recent ledger credit — the
+     * dead-session heartbeat (see DarkbloomStats.lastCreditAtEpochSec). */
+    val lastCreditAtEpochSec: Double? = null,
     val baseRewardsMicroRecent: Long = 0,
     val perModel: List<ModelEarnings> = emptyList(),
     val recent: List<EarningEntry> = emptyList(),
+    /** The bridge's full ledger page (up to 50 entries, same shape as
+     * [recent]) — the recent list is only its head. */
+    val history: List<EarningEntry> = emptyList(),
     val estimates: EarningsEstimates? = null,
 )
 
@@ -264,6 +285,9 @@ data class BatmanLive(
 data class WindowsData(
     val reachable: Boolean = false,
     val stale: Boolean = false,
+    /** Epoch seconds when the bridge fetched this PC snapshot —
+     * pairs with [stale]: "last known" is only meaningful with an age. */
+    val fetchedAtEpochSec: Double? = null,
     val osName: String? = null,
     val osVersion: String? = null,
     val uptimeSeconds: Long? = null,
@@ -331,6 +355,11 @@ data class BatmanHistory(
     val sampleCount: Int? = null,
     val avgActiveThs: Double? = null,
     val avgOverallThs: Double? = null,
+    /** Time-weighted average over the trailing 24h window only, and
+     * that window's actual span — the honest day-rate basis when the
+     * log covers less than a full day. */
+    val avg24hOverallThs: Double? = null,
+    val win24SpanHours: Double? = null,
     val uptimeFraction: Double? = null,
     val realizedPrlEst: Double? = null,
     val realizedUsdNetEst: Double? = null,

@@ -1,6 +1,7 @@
 package com.duckets.dashboard.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,12 +23,17 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.duckets.dashboard.data.DarkbloomStats
+import com.duckets.dashboard.data.EarningEntry
 import com.duckets.dashboard.data.Earnings
 import com.duckets.dashboard.data.EarningsEstimates
 import com.duckets.dashboard.theme.Muse
@@ -44,6 +50,7 @@ import com.duckets.dashboard.ui.fmtDuration
 import com.duckets.dashboard.ui.fmtGb
 import com.duckets.dashboard.ui.fmtLedgerTime
 import com.duckets.dashboard.ui.fmtMicroUsd
+import com.duckets.dashboard.ui.fmtRelativeTime
 import com.duckets.dashboard.ui.fmtUsd
 import com.duckets.dashboard.ui.shortModel
 import com.duckets.dashboard.vm.DashboardUiState
@@ -99,6 +106,7 @@ fun DarkbloomScreen(state: DashboardUiState, columns: Int = 1, onRefresh: () -> 
                         item { ProviderCard(db, state.connected) }
                         item { ModelsCard(db, state.connected) }
                     }
+                    if (e != null && e.history.isNotEmpty()) item { FullLedgerCard(e) }
                     item { GpuCard(db) }
                     item { Spacer(Modifier.height(10.dp)) }
                 }
@@ -153,6 +161,14 @@ private fun EarningsCard(db: DarkbloomStats, e: Earnings?, connected: Boolean) {
             }
             KeyValueRow("Requests served (session)", fmtCount(db.requestsServed))
             KeyValueRow("Tokens generated (session)", fmtCount(db.tokensGenerated))
+            // The dead-session heartbeat: the last time money actually
+            // landed. If this goes stale while the provider claims to
+            // be running, the session is dead — the ledger, not the
+            // daemon's self-report, is the ground truth.
+            val lastCredit = e?.lastCreditAtEpochSec ?: db.lastCreditAtEpochSec
+            if (lastCredit != null) {
+                KeyValueRow("Last credit", fmtRelativeTime(lastCredit))
+            }
         }
     }
 }
@@ -279,6 +295,31 @@ private fun PerModelCard(e: Earnings) {
     }
 }
 
+/** One ledger line — shared by the recent-jobs card and the full
+ * ledger below it, so the two lists can never drift apart visually. */
+@Composable
+private fun LedgerEntryRow(entry: EarningEntry, showConnector: Boolean) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Box(Modifier.size(8.dp).clip(CircleShape).background(Muse.Emerald))
+            if (showConnector) Box(Modifier.width(2.dp).height(22.dp).background(Muse.Border))
+        }
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(if (entry.model == "base_reward") "Base reward" else shortModel(entry.model),
+                style = MaterialTheme.typography.bodyMedium, color = Muse.Mist,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(listOfNotNull(
+                entry.promptTokens?.let { "in ${fmtCount(it)}" },
+                entry.completionTokens?.let { "out ${fmtCount(it)}" },
+                fmtLedgerTime(entry.createdAt).takeIf { it.isNotBlank() },
+            ).joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = Muse.TextFaint,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        Text(fmtMicroUsd(entry.amountMicroUsd), style = MaterialTheme.typography.bodyMedium, color = Muse.Good)
+    }
+}
+
 @Composable
 private fun RecentJobsCard(e: Earnings) {
     MuseCard(Modifier.fillMaxWidth()) {
@@ -286,24 +327,32 @@ private fun RecentJobsCard(e: Earnings) {
             CardHeader("Recent jobs")
             Spacer(Modifier.height(8.dp))
             e.recent.forEachIndexed { i, entry ->
-                Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Box(Modifier.size(8.dp).clip(CircleShape).background(Muse.Emerald))
-                        if (i < e.recent.lastIndex) Box(Modifier.width(2.dp).height(22.dp).background(Muse.Border))
-                    }
-                    Spacer(Modifier.width(10.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(if (entry.model == "base_reward") "Base reward" else shortModel(entry.model),
-                            style = MaterialTheme.typography.bodyMedium, color = Muse.Mist,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(listOfNotNull(
-                            entry.promptTokens?.let { "in ${fmtCount(it)}" },
-                            entry.completionTokens?.let { "out ${fmtCount(it)}" },
-                            fmtLedgerTime(entry.createdAt).takeIf { it.isNotBlank() },
-                        ).joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = Muse.TextFaint,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                    Text(fmtMicroUsd(entry.amountMicroUsd), style = MaterialTheme.typography.bodyMedium, color = Muse.Good)
+                LedgerEntryRow(entry, showConnector = i < e.recent.lastIndex)
+            }
+        }
+    }
+}
+
+/** The bridge's full ledger page (up to 50 entries) — the recent list
+ * above is only its head. Collapsed by default; the bridge is the
+ * source of truth, so the section renders whatever it served, even
+ * when it matches the recent list. */
+@Composable
+private fun FullLedgerCard(e: Earnings) {
+    var expanded by remember { mutableStateOf(false) }
+    MuseCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(20.dp)) {
+            CardHeader("Full ledger (${e.history.size})", subtitle = "every credit the bridge served")
+            Spacer(Modifier.height(8.dp))
+            Text(
+                if (expanded) "Hide entries" else "Show all ${e.history.size} entries",
+                style = MaterialTheme.typography.bodyMedium, color = Muse.BlueSoft,
+                modifier = Modifier.clickable { expanded = !expanded }.padding(vertical = 4.dp),
+            )
+            if (expanded) {
+                Spacer(Modifier.height(4.dp))
+                e.history.forEachIndexed { i, entry ->
+                    LedgerEntryRow(entry, showConnector = i < e.history.lastIndex)
                 }
             }
         }
@@ -325,52 +374,34 @@ private fun ProviderCard(db: DarkbloomStats, connected: Boolean) {
             KeyValueRow("Uptime", fmtDuration(db.uptimeSeconds))
             KeyValueRow("State", db.lifecycle ?: "—")
             KeyValueRow("Currently serving", db.currentModel?.let { shortModel(it) } ?: "—")
+            if (db.usageGaps != null) {
+                KeyValueRow("Usage gaps", db.usageGaps)
+            }
             CardDivider()
             CardHeader("Trust & attestation")
             Spacer(Modifier.height(8.dp))
             KeyValueRow("Trust level", db.trustLevel ?: "—")
-            SessionExpiryRow(db)
             KeyValueRow("Reason", db.trustReason ?: "—")
             KeyValueRow("Path", db.trustPath ?: "—")
             KeyValueRow("App Attest", when (db.attestAttested) { true -> "attested ✓"; false -> "not attested"; null -> "—" })
             KeyValueRow("Attest key age", fmtDuration(db.attestKeyAgeSeconds))
             KeyValueRow("Last Apple success", db.attestLastSuccessAgeSeconds?.let { fmtDuration(it) + " ago" } ?: "—")
+            if (db.attestGenerationsLast24h != null) {
+                KeyValueRow("Attest generations (24h)", fmtCount(db.attestGenerationsLast24h))
+            }
+            if (db.attestConsecutiveFailures != null) {
+                KeyValueRow(
+                    "Consecutive attest failures",
+                    fmtCount(db.attestConsecutiveFailures),
+                    valueColor = if (db.attestConsecutiveFailures > 0) Muse.Warn else Muse.Mist,
+                )
+            }
             if (db.verificationPending) {
                 Spacer(Modifier.height(6.dp))
                 Text("Verification is still pending on Darkbloom's coordinator. Paid jobs and base rewards land anyway — the ledger is the ground truth.",
                     style = MaterialTheme.typography.bodySmall, color = Muse.Warn)
             }
         }
-    }
-}
-
-/** The Darkbloom auth session's end, from trust.session_expires_at.
- * When it passes, the provider silently stops earning until the
- * session is refreshed — so an expired session reads as a problem,
- * not a statistic. */
-@Composable
-private fun SessionExpiryRow(db: DarkbloomStats) {
-    val exp = db.trustSessionExpiresAtEpochSec
-    if (exp == null) {
-        KeyValueRow("Session expires", "—")
-        return
-    }
-    val nowSec = System.currentTimeMillis() / 1000.0
-    val remaining = exp - nowSec
-    val clock = java.text.SimpleDateFormat("MMM d, h:mm a", java.util.Locale.US)
-        .format(java.util.Date((exp * 1000).toLong()))
-    when {
-        remaining <= 0 -> {
-            KeyValueRow("Session expires", "EXPIRED $clock", valueColor = Muse.Bad)
-            Text("Session expired — earning stops until Darkbloom is re-authenticated on the Mac.",
-                style = MaterialTheme.typography.bodySmall, color = Muse.Bad)
-        }
-        remaining < 6 * 3600 -> KeyValueRow(
-            "Session expires",
-            "in ${fmtDuration(remaining.toLong())} · $clock",
-            valueColor = Muse.Warn,
-        )
-        else -> KeyValueRow("Session expires", "in ${fmtDuration(remaining.toLong())} · $clock")
     }
 }
 
@@ -431,6 +462,12 @@ private fun GpuCard(db: DarkbloomStats) {
             KeyValueRow("Active", fmtGb(db.gpuActiveGb))
             KeyValueRow("Cache", fmtGb(db.gpuCacheGb, 2))
             KeyValueRow("Free for new loads", fmtGb(db.freeForLoadGb))
+            if (db.capacityLoadUsableGb != null) {
+                KeyValueRow("Load usable", fmtGb(db.capacityLoadUsableGb))
+            }
+            if (db.capacityLoadHeadroomGb != null) {
+                KeyValueRow("Load headroom", fmtGb(db.capacityLoadHeadroomGb))
+            }
             KeyValueRow("Total", fmtGb(db.capacityTotalGb, 0))
             CardDivider()
             CardHeader("Autopilot")
@@ -442,6 +479,12 @@ private fun GpuCard(db: DarkbloomStats) {
                 false -> "active"
                 null -> "—"
             })
+            if (db.autopilotPaused != null) {
+                KeyValueRow("Paused", if (db.autopilotPaused) "yes" else "no")
+            }
+            if (db.autopilotMaxModelSlots != null) {
+                KeyValueRow("Max model slots", "${db.autopilotMaxModelSlots}")
+            }
         }
     }
 }

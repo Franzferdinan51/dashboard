@@ -89,6 +89,12 @@ private fun WindowsHeroCard(w: WindowsData) {
             }
             Spacer(Modifier.height(10.dp))
             Text("Batman-3", style = MaterialTheme.typography.headlineLarge, color = Muse.Mist)
+            if (w.fetchedAtEpochSec != null) {
+                // "Last known" (stale) only means something with the
+                // snapshot's actual age attached to it.
+                Text("PC data as of ${fmtClock(w.fetchedAtEpochSec)}",
+                    style = MaterialTheme.typography.bodySmall, color = Muse.TextDim)
+            }
             Spacer(Modifier.height(8.dp))
             KeyValueRow("Uptime", fmtDuration(w.uptimeSeconds))
             KeyValueRow("CPU load", w.cpuLoadPct?.let { "$it%" } ?: "—")
