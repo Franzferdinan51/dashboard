@@ -61,7 +61,7 @@ DARKBLOOM_STATE = os.path.join(HOME, ".darkbloom", "daemon-state.json")
 DARKBLOOM_TOKEN = os.path.join(HOME, ".darkbloom", "auth_token")
 LMSTUDIO_KEY = os.path.join(HOME, ".config", "lmstudio", "api_key")
 LMSTUDIO_BASE = "http://127.0.0.1:1234"
-BRIDGE_VERSION = "1.11.0"
+BRIDGE_VERSION = "1.11.1"
 _STARTED_AT = time.time()
 
 # --------------------------------------------------------------------------
@@ -886,7 +886,12 @@ def darkbloom_stats():
             "reason": trust.get("reason"),
             "path": auth.get("path"),
             "app_attest_available": auth.get("app_attest_available"),
-            "session_expires_at": auth.get("expires_at"),
+            # NOT the login session: authorization.expires_at is the App
+            # Attest token, which the daemon renews itself every few
+            # seconds — surfacing it made the apps flicker "expired".
+            # The daemon exposes no login-session expiry; the earning
+            # signal (ledger recency below) is the dead-session detector.
+            "session_expires_at": None,
         },
         # "Earning" = a ledger credit or session activity inside the
         # recency window — NOT a lifetime job count (that made the flag
