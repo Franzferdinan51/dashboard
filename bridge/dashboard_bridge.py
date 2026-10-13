@@ -19,6 +19,8 @@ Endpoints:
     GET  /api/decisions -> recent state-change events (?limit=50)
     GET  /api/windows   -> Windows PC (Batman-3) vitals + miner state
     GET  /api/mining    -> Kryptex mining fleet + Batman-3 live miner
+    GET  /api/cannaai   -> CannaAI grow backend state (sensors/alerts)
+    GET  /api/systemone -> SystemOne sidecar state (metrics + shim)
     GET  /api/actions   -> action surface state (LM Studio loaded/available
                            models, Darkbloom + miner + bridge state)
     POST /api/action    -> run an action {"action": ..., "target": ...}
@@ -59,7 +61,7 @@ DARKBLOOM_STATE = os.path.join(HOME, ".darkbloom", "daemon-state.json")
 DARKBLOOM_TOKEN = os.path.join(HOME, ".darkbloom", "auth_token")
 LMSTUDIO_KEY = os.path.join(HOME, ".config", "lmstudio", "api_key")
 LMSTUDIO_BASE = "http://127.0.0.1:1234"
-BRIDGE_VERSION = "1.10.2"
+BRIDGE_VERSION = "1.11.0"
 _STARTED_AT = time.time()
 
 # --------------------------------------------------------------------------
@@ -156,6 +158,12 @@ def http_get_json(url, headers=None, timeout=4):
     req = urllib.request.Request(url, headers=headers or {})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read().decode("utf-8"))
+
+
+def http_get_text(url, timeout=3):
+    req = urllib.request.Request(url)
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return resp.read().decode("utf-8", "replace")
 
 
 # --------------------------------------------------------------------------
@@ -1020,13 +1028,64 @@ def decisions_list(limit=50):
         return list(reversed(_decisions[-limit:]))
 
 
+# Transitions that mean money stopped (or trust moved) also fire a phone
+# alert via ntfy. Kill switch: create ~/dashboard-bridge/alerts_off.
+_ALERT_KINDS = {"darkbloom_stopped", "darkbloom_earning_stopped",
+                "darkbloom_trust_changed", "miner_stopped",
+                "batman_unreachable"}
+_ALERTS_OFF_FILE = os.path.join(HOME, "dashboard-bridge", "alerts_off")
+_NTFY_URL = "https://ntfy.sh/duckets-alerts-7f3k9"
+
+
+def _notify_text(kind, detail):
+    if kind == "darkbloom_trust_changed" and detail:
+        return (f"Darkbloom trust changed: "
+                f"{detail.get('from')} -> {detail.get('to')}")
+    labels = {
+        "darkbloom_stopped": "Darkbloom provider stopped",
+        "darkbloom_earning_stopped": "Darkbloom stopped earning",
+        "miner_stopped": "Batman-3 miner stopped",
+        "batman_unreachable": "Batman-3 unreachable (asleep, off, or SSH blocked)",
+    }
+    base = labels.get(kind, kind)
+    if detail:
+        extra = ", ".join(f"{k}={v}" for k, v in detail.items())
+        return f"{base} ({extra})"
+    return base
+
+
+def _notify_alert(kind, detail=None):
+    """Best-effort ntfy push for watcher transitions. Never raises: a
+    dead network or ntfy outage must not take the watcher down with it."""
+    try:
+        if os.path.exists(_ALERTS_OFF_FILE):
+            return
+        body = _notify_text(kind, detail).encode("utf-8")[:500]
+        req = urllib.request.Request(_NTFY_URL, data=body, method="POST",
+                                     headers={"Title": "Dashboard"})
+        urllib.request.urlopen(req, timeout=5).read()
+    except Exception:
+        pass
+
+
 def _watcher():
     _record_decision("bridge_started", {"version": BRIDGE_VERSION})
+
+    def rec(kind, detail=None):
+        _record_decision(kind, detail)
+        if kind in _ALERT_KINDS:
+            _notify_alert(kind, detail)
+
     prev = None
     while True:
         try:
             db = darkbloom_stats()
             lm = lmstudio_stats()
+            win = windows_stats()
+            # windows_stats serves last-good (stale=True) when the PC
+            # stops answering — only a fresh fetch counts as reachable.
+            win_up = bool(win and win.get("reachable")) \
+                and not (win or {}).get("stale")
             sig = {
                 "db_running": bool(db.get("running")),
                 "db_earning": bool(db.get("earning")),
@@ -1036,27 +1095,37 @@ def _watcher():
                     m.get("id") or "" for m in (lm.get("models") or [])
                     if m.get("state") == "loaded")),
                 "db_model": db.get("current_model"),
+                "win_reachable": win_up,
+                "miner_running": bool(
+                    ((win or {}).get("miner") or {}).get("running")),
             }
             if prev is not None:
                 if sig["db_running"] != prev["db_running"]:
-                    _record_decision(
-                        "darkbloom_started" if sig["db_running"] else "darkbloom_stopped")
+                    rec("darkbloom_started" if sig["db_running"] else "darkbloom_stopped")
                 if sig["db_running"] and sig["db_earning"] != prev["db_earning"]:
-                    _record_decision(
-                        "darkbloom_earning_started" if sig["db_earning"]
+                    rec("darkbloom_earning_started" if sig["db_earning"]
                         else "darkbloom_earning_stopped")
                 if sig["trust"] != prev["trust"]:
-                    _record_decision("darkbloom_trust_changed",
-                                     {"from": prev["trust"], "to": sig["trust"]})
+                    rec("darkbloom_trust_changed",
+                        {"from": prev["trust"], "to": sig["trust"]})
                 if sig["lm_reachable"] != prev["lm_reachable"]:
-                    _record_decision(
-                        "lmstudio_up" if sig["lm_reachable"] else "lmstudio_down")
+                    rec("lmstudio_up" if sig["lm_reachable"] else "lmstudio_down")
                 if sig["lm_loaded"] != prev["lm_loaded"]:
-                    _record_decision("lmstudio_models_changed",
-                                     {"loaded": list(sig["lm_loaded"])})
+                    rec("lmstudio_models_changed",
+                        {"loaded": list(sig["lm_loaded"])})
                 if sig["db_model"] != prev["db_model"] and sig["db_model"]:
-                    _record_decision("darkbloom_model_changed",
-                                     {"model": sig["db_model"]})
+                    rec("darkbloom_model_changed",
+                        {"model": sig["db_model"]})
+                if sig["win_reachable"] != prev["win_reachable"]:
+                    rec("batman_reachable" if sig["win_reachable"]
+                        else "batman_unreachable")
+                elif prev["win_reachable"] and sig["win_reachable"] \
+                        and sig["miner_running"] != prev["miner_running"]:
+                    # Miner transitions only count while the PC answers
+                    # on both samples — a sleeping PC is batman_unreachable,
+                    # not a miner stop.
+                    rec("miner_started" if sig["miner_running"]
+                        else "miner_stopped")
             prev = sig
         except Exception:
             pass
@@ -1244,6 +1313,188 @@ def windows_stats():
 
 
 # --------------------------------------------------------------------------
+# CannaAI (grow assistant on the same Mac, Next.js on :3000) and
+# SystemOne (decision sidecar :8079 + HTTP shim :8765) — read-only
+# proxies so the apps get one origin for everything. Both are
+# optional housemates: unreachable is a state, not an error.
+# --------------------------------------------------------------------------
+
+CANNAI_BASE = "http://127.0.0.1:3000"
+SYSTEMONE_METRICS = "http://127.0.0.1:8079/metrics"
+SYSTEMONE_SHIM = "http://127.0.0.1:8765/"
+
+
+def _cannaai_status_summary(health):
+    if not isinstance(health, dict):
+        return "up"
+    if isinstance(health.get("status"), str):
+        return health["status"]
+    comps = health.get("components") or health.get("checks") or {}
+    if isinstance(comps, dict) and comps:
+        parts = []
+        for name, c in comps.items():
+            st = c.get("status") if isinstance(c, dict) else c
+            parts.append(f"{name} {st}")
+        return " · ".join(parts)[:160]
+    return "up"
+
+
+def _cannaai_sensors():
+    try:
+        payload = http_get_json(CANNAI_BASE + "/api/sensors", timeout=5)
+    except Exception:
+        return []
+    rows = payload.get("data") if isinstance(payload, dict) else payload
+    if not isinstance(rows, list) or not rows:
+        return []
+    out = []
+    latest = rows[0] if isinstance(rows[0], dict) else {}
+    data = latest.get("data") if isinstance(latest.get("data"), dict) else {}
+    fields = [("temperature", "Temperature", "°F"),
+              ("humidity", "Humidity", "%"),
+              ("vpd", "VPD", "kPa"),
+              ("co2", "CO2", "ppm"),
+              ("light", "Light", "")]
+    for key, label, unit in fields:
+        if data.get(key) is not None:
+            out.append({"label": label, "value": data[key], "unit": unit})
+    if not out and latest.get("value") is not None:
+        out.append({"label": latest.get("type") or latest.get("name")
+                    or "Reading", "value": latest.get("value"),
+                    "unit": latest.get("unit") or ""})
+    return out[:6]
+
+
+def _cannaai_alerts():
+    try:
+        payload = http_get_json(CANNAI_BASE + "/api/alerts", timeout=5)
+    except Exception:
+        return []
+    rows = payload.get("data") if isinstance(payload, dict) else payload
+    if not isinstance(rows, list):
+        return []
+    out = []
+    for a in rows:
+        if not isinstance(a, dict):
+            continue
+        if a.get("resolved") or a.get("acknowledged") or a.get("dismissed"):
+            continue
+        out.append({"text": a.get("message") or a.get("title")
+                    or a.get("type") or "alert",
+                    "level": a.get("severity") or a.get("level")
+                    or a.get("type") or "info",
+                    "at": a.get("createdAt") or a.get("timestamp")})
+        if len(out) >= 5:
+            break
+    return out
+
+
+def _cannaai_journal_latest():
+    try:
+        payload = http_get_json(CANNAI_BASE + "/api/journal", timeout=5)
+    except Exception:
+        return None
+    rows = payload.get("data") if isinstance(payload, dict) else payload
+    if isinstance(rows, dict):
+        rows = [rows]
+    if not isinstance(rows, list) or not rows or not isinstance(rows[0], dict):
+        return None
+    e = rows[0]
+    text = e.get("text") or e.get("entry") or e.get("content") \
+        or e.get("title") or e.get("notes")
+    if not text:
+        return None
+    return {"text": str(text)[:200],
+            "at": e.get("createdAt") or e.get("timestamp") or e.get("date")}
+
+
+def _cannaai_providers_up():
+    try:
+        payload = http_get_json(CANNAI_BASE + "/api/ai/providers", timeout=5)
+    except Exception:
+        return None
+    rows = None
+    if isinstance(payload, list):
+        rows = payload
+    elif isinstance(payload, dict):
+        for key in ("data", "providers", "items"):
+            if isinstance(payload.get(key), list):
+                rows = payload[key]
+                break
+    if rows is None:
+        return None
+    up = 0
+    for p in rows:
+        if not isinstance(p, dict):
+            continue
+        if p.get("isAvailable") is True or p.get("available") is True \
+                or p.get("status") in ("healthy", "available", "ok", "up"):
+            up += 1
+    return up
+
+
+def cannaai_stats():
+    def fetch():
+        try:
+            health = http_get_json(CANNAI_BASE + "/api/health-check",
+                                   timeout=5)
+        except Exception:
+            return {"reachable": False}
+        return {"reachable": True,
+                "status": _cannaai_status_summary(health),
+                "sensors": _cannaai_sensors(),
+                "alerts": _cannaai_alerts(),
+                "journal_latest": _cannaai_journal_latest(),
+                "providers_up": _cannaai_providers_up()}
+    return cached("cannaai", 30, fetch, swr=True)
+
+
+def systemone_stats():
+    def fetch():
+        metrics_ok = False
+        decisions_total = None
+        try:
+            text = http_get_text(SYSTEMONE_METRICS, timeout=3)
+            metrics_ok = True
+            total = 0.0
+            found = False
+            for line in text.splitlines():
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                m = re.match(r"^([a-zA-Z_:][a-zA-Z0-9_:]*)"
+                             r"(?:\{[^}]*\})?\s+([0-9.eE+-]+)$", line)
+                if not m:
+                    continue
+                name = m.group(1).lower()
+                if ("decision" not in name and "decide" not in name) \
+                        or name.endswith(("_created", "_bucket",
+                                          "_sum", "_count")):
+                    continue
+                try:
+                    total += float(m.group(2))
+                    found = True
+                except Exception:
+                    pass
+            if found:
+                decisions_total = int(total) if total == int(total) else total
+        except Exception:
+            pass
+        shim_up = False
+        try:
+            http_get_text(SYSTEMONE_SHIM, timeout=3)
+            shim_up = True
+        except urllib.error.HTTPError:
+            shim_up = True  # any HTTP response means the shim is alive
+        except Exception:
+            pass
+        return {"reachable": bool(metrics_ok or shim_up),
+                "metrics_ok": metrics_ok, "shim_up": shim_up,
+                "decisions_total": decisions_total}
+    return cached("systemone", 30, fetch, swr=True)
+
+
+# --------------------------------------------------------------------------
 # Crypto mining — Kryptex fleet. Fleet figures live in a data file next
 # to the bridge (mining.json, manual snapshots from the Kryptex
 # dashboard; NOT in the git repo — it's his financial data). Batman-3's
@@ -1251,6 +1502,21 @@ def windows_stats():
 
 MINING_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                            "mining.json")
+BRIDGE_CONFIG = os.path.join(HOME, "dashboard-bridge", "config.json")
+
+
+def _electricity_rate():
+    """USD per kWh from ~/dashboard-bridge/config.json
+    (electricity_usd_per_kwh). Read on every call so an edit takes
+    effect without a bridge restart; falls back to $0.14."""
+    try:
+        with open(BRIDGE_CONFIG) as f:
+            v = float(json.load(f).get("electricity_usd_per_kwh"))
+        if v > 0:
+            return v
+    except Exception:
+        pass
+    return 0.14
 
 
 # Kryptex's Pearl pool fee (pool.kryptex.com pool listing, Oct 2026).
@@ -1500,12 +1766,29 @@ def mining_stats():
                                   for c in coins for r in c.get("rigs") or []), 2)
             total_month = round(sum(r.get("per_month_usd") or 0
                                     for c in coins for r in c.get("rigs") or []), 2)
+        hist = _batman_history()
+        verified = _batman_verified(win, fleet, hist)
+        # True profit: verified net revenue minus the rig's power cost
+        # at the configured electricity rate. net_day stays null while
+        # the miner is off (no honest net without a live draw + basis).
+        rate = _electricity_rate()
+        power_w = (batman_live or {}).get("power_w")
+        kwh_day = cost_day = net_day = None
+        if power_w:
+            kwh_day = round(power_w * 24 / 1000.0, 3)
+            cost_day = round(kwh_day * rate, 2)
+        if (batman_live or {}).get("running") and cost_day is not None \
+                and verified:
+            net_day = round(verified["usd_per_day_net"] - cost_day, 2)
+        profit = {"power_w": power_w, "rate_usd_kwh": rate,
+                  "kwh_per_day": kwh_day, "power_cost_day": cost_day,
+                  "net_day": net_day}
         return {
             "fleet": fleet,
             "batman_live": batman_live,
-            "batman_history": _batman_history(),
-            "batman_verified": _batman_verified(win, fleet,
-                                                _batman_history()),
+            "batman_history": hist,
+            "batman_verified": verified,
+            "profit": profit,
             "totals": ({"per_day_usd": total_day,
                         "per_week_usd": round(total_day * 7, 2),
                         "per_month_usd": total_month,
@@ -1617,6 +1900,7 @@ def actions_stats():
             "mining": {"miner_running": bool(
                 ((win or {}).get("miner") or {}).get("running"))},
             "bridge": {"version": BRIDGE_VERSION},
+            "history": _actions_history(20),
         }
     # lms ls/ps take ~1s each — serve stale-while-revalidate like the
     # other slow probes so a poll never blocks on them.
@@ -1633,6 +1917,29 @@ def _log_action(action, target, ok, message):
                                 "message": message}) + "\n")
     except Exception:
         pass
+
+
+def _actions_history(limit=20):
+    """Most recent action attempts from the actions ledger, newest
+    first. Tolerates torn lines (a crash mid-append) the same way the
+    other ledger readers do: a bad line is skipped, never fatal."""
+    try:
+        with open(ACTIONS_LOG) as f:
+            lines = f.readlines()[-500:]
+    except Exception:
+        return []
+    out = []
+    for ln in reversed(lines):
+        try:
+            e = json.loads(ln)
+        except Exception:
+            continue
+        out.append({"ts": e.get("ts"), "action": e.get("action"),
+                    "target": e.get("target"), "ok": bool(e.get("ok")),
+                    "message": e.get("message")})
+        if len(out) >= limit:
+            break
+    return out
 
 
 def _batman_ps(script, timeout=60):
@@ -1958,6 +2265,12 @@ class Handler(BaseHTTPRequestHandler):
                 self._send({"generated_at": time.time(), "mining": mining_stats()})
             elif path == "/api/actions":
                 self._send(actions_stats())
+            elif path == "/api/cannaai":
+                self._send({"generated_at": time.time(),
+                            "cannaai": cannaai_stats()})
+            elif path == "/api/systemone":
+                self._send({"generated_at": time.time(),
+                            "systemone": systemone_stats()})
             elif path == "/api/decisions":
                 qs = urllib.parse.urlparse(self.path).query
                 raw_limit = urllib.parse.parse_qs(qs).get("limit", ["50"])[0]
