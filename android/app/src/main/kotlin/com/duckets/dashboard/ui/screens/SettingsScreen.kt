@@ -47,6 +47,7 @@ import com.duckets.dashboard.ui.components.CardHeader
 import com.duckets.dashboard.ui.components.KeyValueRow
 import com.duckets.dashboard.ui.components.MuseCard
 import com.duckets.dashboard.ui.components.StatusChip
+import com.duckets.dashboard.ui.fmtDuration
 import com.duckets.dashboard.ui.fmtFreshness
 import com.duckets.dashboard.vm.DashboardUiState
 import com.duckets.dashboard.vm.DashboardViewModel
@@ -175,8 +176,10 @@ fun SettingsScreen(state: DashboardUiState, vm: DashboardViewModel, columns: Int
                     Column(Modifier.padding(20.dp)) {
                         CardHeader("About")
                         Spacer(Modifier.height(10.dp))
-                        KeyValueRow("App", "Mac Studio Dashboard v${BuildConfig.VERSION_NAME}")
-                        KeyValueRow("Bridge", state.bridgeUrl)
+                        KeyValueRow("App", "Mac Studio Dashboard v${BuildConfig.VERSION_NAME} (build ${BuildConfig.VERSION_CODE})")
+                        KeyValueRow("Bridge version", (state.overview?.bridgeVersion ?: state.actions.data?.bridgeVersion)?.let { "v$it" } ?: "—")
+                        KeyValueRow("Bridge uptime", state.overview?.bridgeUptimeSeconds?.let { fmtDuration(it) } ?: "—")
+                        KeyValueRow("Bridge URL", state.bridgeUrl)
                         KeyValueRow("Data", "System vitals · Darkbloom · LM Studio")
                         KeyValueRow("Layout", if (columns >= 2) "Tablet (rail, 2 columns)" else "Phone (bottom nav)")
                         KeyValueRow("Privacy", "Talks only to your bridge on your tailnet/LAN. The Actions tab can run commands on your own machines.")

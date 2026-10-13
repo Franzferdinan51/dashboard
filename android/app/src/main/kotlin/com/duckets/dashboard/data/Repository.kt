@@ -329,6 +329,8 @@ fun parseOverview(root: JSONObject): Overview {
         system = system,
         darkbloom = parseDarkbloom(root.obj("darkbloom") ?: JSONObject()),
         lmstudio = parseLmStudio(root.obj("lmstudio") ?: JSONObject()),
+        bridgeVersion = root.obj("bridge")?.str("version"),
+        bridgeUptimeSeconds = root.obj("bridge")?.lng("uptime_seconds"),
     )
 }
 

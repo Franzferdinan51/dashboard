@@ -7,6 +7,9 @@ data class Overview(
     val system: SystemStats = SystemStats(),
     val darkbloom: DarkbloomStats = DarkbloomStats(),
     val lmstudio: LmStudioStats = LmStudioStats(),
+    /** From the payload's `bridge` block — shown in Settings → About. */
+    val bridgeVersion: String? = null,
+    val bridgeUptimeSeconds: Long? = null,
 )
 
 data class SystemStats(
